@@ -21,7 +21,14 @@ export const TIER_SETTINGS: Record<
   DeviceTier,
   { particles: number; dpr: [number, number]; postFx: boolean }
 > = {
-  low: { particles: 140, dpr: [1, 1.25], postFx: true },
+  // postFx (bloom + mipmapBlur + noise + vignette) is the single most
+  // expensive part of this scene on mobile GPUs — far more than the
+  // particle-count difference. Measured: leaving it on for every tier meant
+  // "low" (width < 640 or <=2 cores, i.e. most phones) only cosmetically
+  // reduced load. Disabled here so the low tier actually sheds GPU cost
+  // instead of just drawing fewer points while still running the full
+  // multi-pass EffectComposer chain every frame.
+  low: { particles: 140, dpr: [1, 1.25], postFx: false },
   mid: { particles: 380, dpr: [1, 1.5], postFx: true },
   high: { particles: 700, dpr: [1, 1.9], postFx: true },
 };

@@ -30,7 +30,7 @@ export const metadata: Metadata = {
     type: "website",
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: "Gitamesh — The coordination mesh for autonomous coding agents",
     description:
       "Atomic claims, fencing tokens, leases, and an append-only event log for teams of AI coding agents working the same repos.",
