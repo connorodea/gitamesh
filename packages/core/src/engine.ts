@@ -19,6 +19,7 @@ import type { StorageAdapter } from "./storage-adapter.js";
 import { canTransitionTask, canTransitionAttempt } from "./state-machines.js";
 import { validateResourceKey, claimsConflict } from "./resource-keys.js";
 import { evaluateFanIn } from "./fan-in.js";
+import { cascadeCancelChildren } from "./cancellation.js";
 
 export { validateResourceKey } from "./resource-keys.js";
 
@@ -84,6 +85,22 @@ export interface FailAttemptResult {
 export interface ExpireStaleLeasesResult {
   expiredAttemptIds: string[];
   requeuedTaskIds: string[];
+}
+
+export interface CancelTaskParams {
+  taskId: string;
+}
+
+export interface CancelTaskResult {
+  task: Task;
+  /** Every child task (any depth) that cascaded to `cancelled` alongside it. */
+  cancelledChildren: Task[];
+  /**
+   * Dependent tasks (`Task.dependencies` includes this task) whose status
+   * changed as a result — normally to `dead_letter` via `evaluateFanIn`,
+   * since a cancelled dependency can never become `completed`.
+   */
+  fanInChanged: Task[];
 }
 
 const DEFAULT_LEASE_DURATION_MS = 30_000;
@@ -572,6 +589,128 @@ export class CoordinationEngine {
         result,
       );
       return result;
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  /**
+   * Cancels a task and cascades the consequences to its family:
+   *
+   *  - The task itself: validated via `assertTaskTransition` (reusing the
+   *    same `canTransitionTask` state-machine predicate every other
+   *    engine method uses — no second, hand-rolled check). Any active
+   *    attempt on it is cancelled and its lease/resource claims released,
+   *    mirroring exactly the cleanup `apps/daemon/src/routes/tasks.ts`'s
+   *    `/v1/tasks/:taskId/cancel` route already performs directly via
+   *    storage (that route is out of scope to modify here — see this
+   *    method's own doc for the follow-up note).
+   *  - Children (`Task.parent_task_id` === this task): cascaded via
+   *    `cascadeCancelChildren` (`packages/core/src/cancellation.ts`),
+   *    which documents its own scope guard (only `pending`/`blocked`
+   *    children auto-cancel; claimed/running children are left alone) and
+   *    cascades to arbitrary nesting depth.
+   *  - Dependents (`Task.dependencies` includes this task): this task
+   *    becoming `cancelled` is one of `evaluateFanIn`'s
+   *    `NEVER_COMPLETES_STATES` (`packages/core/src/fan-in.ts`), so
+   *    calling `evaluateFanIn` here — the exact same call
+   *    `completeAttempt`/`failAttempt` already make — naturally escalates
+   *    any dependent whose join policy can no longer be satisfied to
+   *    `dead_letter`, with no second parallel mechanism needed.
+   *
+   * All of the above happens inside one `storage.transaction()`, and one
+   * `task.cancelled` event is appended per task that actually changed
+   * state (the root, every cascaded child, and — implicitly, via
+   * `evaluateFanIn`'s own writes — every dead-lettered dependent, though
+   * `evaluateFanIn` itself does not append events; see note below).
+   */
+  cancelTask(params: CancelTaskParams): CancelTaskResult {
+    return this.storage.transaction(() => {
+      const task = this.storage.getTask(params.taskId);
+      if (!task) {
+        throw taskNotFound(params.taskId);
+      }
+
+      const now = this.storage.now();
+
+      // Cancel any active attempt on the task itself, mirroring the
+      // daemon route's existing per-attempt cleanup exactly.
+      for (const attempt of this.storage.getActiveAttemptsForTask(
+        task.task_id,
+      )) {
+        if (canTransitionAttempt(attempt.status, "cancelled")) {
+          const cancelledAttempt: TaskAttempt = {
+            ...attempt,
+            status: "cancelled",
+            completed_at: now,
+            error: "task cancelled",
+          };
+          this.storage.saveAttempt(cancelledAttempt);
+          this.storage.releaseResourceClaimsForAttempt(attempt.attempt_id);
+          const lease = this.storage.getLeaseByAttempt(attempt.attempt_id);
+          if (lease) {
+            this.storage.saveLease({
+              ...lease,
+              status: "released",
+              released_at: now,
+            });
+          }
+        }
+      }
+
+      const updatedTask = this.assertTaskTransition(task, "cancelled");
+      const finalTask: Task = { ...updatedTask, updated_at: now };
+      this.storage.saveTask(finalTask);
+      this.appendCancelledEvent(finalTask, now);
+
+      // Cascade to children (parent_task_id relation — new logic, not
+      // covered by evaluateFanIn, which only understands `dependencies`).
+      const cancelledChildren = cascadeCancelChildren(
+        this.storage,
+        finalTask.task_id,
+        finalTask.repository_id,
+        now,
+      );
+      for (const child of cancelledChildren) {
+        this.appendCancelledEvent(child, now);
+      }
+
+      // Cascade to dependents (dependencies relation — reuse the
+      // existing fan-in reducer; `cancelled` is already one of its
+      // NEVER_COMPLETES_STATES). Must run once for the root task AND
+      // once per cascaded child, since each one is itself a potential
+      // dependency of some other task.
+      let fanInChanged: Task[] = evaluateFanIn(
+        this.storage,
+        finalTask.task_id,
+        now,
+      );
+      for (const child of cancelledChildren) {
+        fanInChanged = fanInChanged.concat(
+          evaluateFanIn(this.storage, child.task_id, now),
+        );
+      }
+
+      return { task: finalTask, cancelledChildren, fanInChanged };
+    });
+  }
+
+  private appendCancelledEvent(task: Task, nowIso: string): void {
+    this.storage.appendEvent({
+      schema_version: 1,
+      event_type: "task.cancelled",
+      occurred_at: nowIso,
+      namespace_id: this.namespaceOf(task),
+      repository_id: task.repository_id,
+      workflow_id: task.workflow_id,
+      task_id: task.task_id,
+      attempt_id: null,
+      agent_id: null,
+      workspace_session_id: null,
+      correlation_id: null,
+      causation_id: null,
+      idempotency_key: null,
+      payload: {},
+      metadata: {},
     });
   }
 

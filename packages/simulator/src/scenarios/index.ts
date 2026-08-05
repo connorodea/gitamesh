@@ -4,7 +4,7 @@ import { duplicateClaimIdempotencyScenario } from "./duplicate-claim-idempotency
 import { workerCrashRequeueScenario } from "./worker-crash-requeue.js";
 import { staleFencingTokenRejectionScenario } from "./stale-fencing-token-rejection.js";
 import { snapshotStalenessGapScenario } from "./snapshot-staleness-gap.js";
-import { cancellationCascadeGapScenario } from "./cancellation-cascade-gap.js";
+import { cancellationCascadeScenario } from "./cancellation-cascade.js";
 import { fanInJoinPolicyScenario } from "./fan-in-join-policy.js";
 import { integrationCandidatesSkippedScenario } from "./integration-candidates-skipped.js";
 import { pathTraversalSymlinkScenario } from "./path-traversal-symlink.js";
@@ -27,7 +27,7 @@ export const ALL_SCENARIOS: Scenario[] = [
   workerCrashRequeueScenario,
   staleFencingTokenRejectionScenario,
   snapshotStalenessGapScenario,
-  cancellationCascadeGapScenario,
+  cancellationCascadeScenario,
   fanInJoinPolicyScenario,
   integrationCandidatesSkippedScenario,
   pathTraversalSymlinkScenario,

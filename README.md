@@ -78,11 +78,15 @@ provider, not a chatbot, not a CI platform, and not an IDE.
   single `mulberry32` PRNG seed, and writes a `simulation-report.json`
   with a per-scenario `reproductionCommand`. Also honestly documents,
   rather than fakes, the spec scenarios blocked on missing
-  `packages/core` features (base_sha staleness, cancellation cascade,
-  integration candidates) — see `packages/simulator/README.md`. Fan-in
-  join-policy evaluation (`Task.join_policy`/`Task.dependencies`) is
-  implemented (`packages/core/src/fan-in.ts`); `"quorum"` policy remains
-  a documented no-op pending a threshold field in the schema.
+  `packages/core` features (base_sha staleness, integration candidates)
+  — see `packages/simulator/README.md`. Fan-in join-policy evaluation
+  (`Task.join_policy`/`Task.dependencies`) is implemented
+  (`packages/core/src/fan-in.ts`); `"quorum"` policy remains a documented
+  no-op pending a threshold field in the schema. Cancellation cascade is
+  implemented too (`CoordinationEngine.cancelTask`,
+  `packages/core/src/cancellation.ts`): cancelling a task cascades to
+  still-pending/blocked children and, via the same fan-in reducer,
+  dead-letters dependents that can never complete.
 
 All of the above ship with real, passing tests — see each package's
 `test/` directory. See `docs/adr/0001-protocol-first-storage-agnostic-core.md`

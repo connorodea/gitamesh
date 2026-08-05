@@ -4,3 +4,4 @@ export * from "./resource-keys.js";
 export * from "./storage-adapter.js";
 export * from "./engine.js";
 export * from "./fan-in.js";
+export * from "./cancellation.js";

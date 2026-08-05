@@ -87,7 +87,7 @@ deterministic.
 | 4 | `worker-crash-requeue` | **implemented** | An agent stops heartbeating mid-attempt; `expireStaleLeases` requeues the task and the next claim gets a strictly higher fencing token. |
 | 5 | `stale-fencing-token-rejection` | **implemented** | A superseded ("zombie") agent's heartbeat/complete/fail calls are all rejected once a fresh attempt has taken over. |
 | 6 | `snapshot-staleness-gap` | **honest gap** | See below. |
-| 7 | `cancellation-cascade-gap` | **honest gap** | See below. |
+| 7 | `cancellation-cascade` | **implemented** | `CoordinationEngine.cancelTask` cancels a task, cascades to still-`pending`/`blocked` children (`Task.parent_task_id`) recursively, leaves an already-claimed/running child untouched, and — via the existing `evaluateFanIn` reducer — dead-letters an `"all"`-policy dependent that can never complete because its dependency was cancelled. |
 | 8 | `fan-in-join-policy` | **implemented** | A task with `join_policy: "any"` unblocks (`pending -> queued`) as soon as one of its `dependencies` completes; a task with `join_policy: "all"` stays `pending` after only one of two dependencies completes, then unblocks once both do. `join_policy: "quorum"` remains a documented no-op — see below. |
 | 9 | `integration-candidates-skipped` | **blocked, skipped** | See below. |
 | 10 | `path-traversal-symlink` | **implemented** | Malicious resource keys (`../..`, absolute paths, NUL bytes, `~/...`) are rejected lexically, both directly via `validateResourceKey` and via `claimTask`, before anything is acquired. |
@@ -115,17 +115,6 @@ behavior instead:
   scenario confirms two tasks with different `base_sha` values
   claim/complete identically, because nothing in the engine
   distinguishes them.
-- **`cancellation-cascade-gap`** (cancellation propagation to child
-  tasks): `CoordinationEngine` exposes exactly five operations
-  (`claimTask`, `heartbeatAttempt`, `completeAttempt`, `failAttempt`,
-  `expireStaleLeases`) — there is no `cancelTask`, and no logic
-  anywhere that walks `Task.parent_task_id` / `Task.dependencies` to
-  cascade a cancellation. `cancelled` IS a legal `TASK_TRANSITIONS`
-  target state, so the state machine supports it, but nothing drives a
-  task there or propagates it. The scenario cancels a parent directly
-  via storage (there being no engine method to call) and confirms its
-  child and dependent tasks are left untouched and independently
-  claimable.
 - **`integration-candidates-skipped`** (conflicting integration
   candidates): `IntegrationState` / `INTEGRATION_TRANSITIONS` are
   defined in `packages/core/src/state-machines.ts`, but there is no
@@ -243,7 +232,7 @@ src/
     worker-crash-requeue.ts
     stale-fencing-token-rejection.ts
     snapshot-staleness-gap.ts
-    cancellation-cascade-gap.ts
+    cancellation-cascade.ts
     fan-in-join-policy.ts
     integration-candidates-skipped.ts
     path-traversal-symlink.ts
