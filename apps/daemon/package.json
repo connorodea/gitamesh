@@ -2,6 +2,39 @@
   "name": "@gitamesh/daemon",
   "version": "0.1.0",
   "private": true,
-  "description": "Gitamesh coordination daemon (placeholder — not yet built; see README.md).",
-  "license": "Apache-2.0"
+  "description": "Gitamesh coordination daemon — Fastify HTTP/WebSocket API over the embedded SQLite CoordinationEngine.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "mint-token": "tsx scripts/mint-token.ts",
+    "test": "vitest run --root ../.. apps/daemon"
+  },
+  "dependencies": {
+    "@fastify/websocket": "^11.0.2",
+    "@gitamesh/core": "workspace:*",
+    "@gitamesh/protocol": "workspace:*",
+    "@gitamesh/storage-sqlite": "workspace:*",
+    "fastify": "^5.2.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13",
+    "pino-pretty": "^13.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5",
+    "ws": "^8.18.0"
+  }
 }

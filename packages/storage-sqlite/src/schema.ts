@@ -177,4 +177,21 @@ CREATE TABLE IF NOT EXISTS id_counters (
   prefix TEXT PRIMARY KEY,
   next_value INTEGER NOT NULL
 );
+
+-- Daemon-only concern (apps/daemon): opaque bearer tokens for the HTTP API.
+-- This is NOT part of the storage-agnostic CoordinationEngine's
+-- StorageAdapter interface (packages/core) — auth/token management is a
+-- daemon-layer responsibility, not a coordination invariant, so it is
+-- implemented as extra methods on the concrete SqliteStorageAdapter that
+-- apps/daemon depends on directly. Only the hash is ever stored; the raw
+-- token is shown to the caller exactly once, at mint time.
+CREATE TABLE IF NOT EXISTS tokens (
+  token_id TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  scopes TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT,
+  revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_tokens_hash ON tokens(token_hash);
 `;

@@ -5,9 +5,29 @@ import type {
   ResourceClaim,
   Lease,
   EventEnvelope,
+  Agent,
 } from "@gitamesh/protocol";
 import type { StorageAdapter } from "@gitamesh/core";
 import { SCHEMA_SQL } from "./schema.js";
+
+/**
+ * A stored bearer token record. Daemon-only concern — see the comment
+ * above the `tokens` table in `./schema.ts`. `token_hash` is a SHA-256 hex
+ * digest of the raw token; the raw value is never persisted.
+ */
+export interface StoredToken {
+  token_id: string;
+  token_hash: string;
+  scopes: string[];
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface EventWithCursor extends EventEnvelope {
+  /** Monotonic, globally-ordered insertion cursor (SQLite rowid). Opaque — treat as an opaque string/number token, not a semantic value. */
+  cursor: number;
+}
 
 type TaskRow = {
   task_id: string;
@@ -157,6 +177,52 @@ function leaseFromRow(row: LeaseRow): Lease {
     renewed_at: row.renewed_at,
     expires_at: row.expires_at,
     released_at: row.released_at,
+  };
+}
+
+type AgentRow = {
+  agent_id: string;
+  namespace_id: string;
+  display_name: string;
+  runtime: string;
+  version: string;
+  capabilities: string;
+  status: string;
+  last_heartbeat_at: string | null;
+  metadata: string;
+};
+
+function agentFromRow(row: AgentRow): Agent {
+  return {
+    agent_id: row.agent_id,
+    namespace_id: row.namespace_id,
+    display_name: row.display_name,
+    runtime: row.runtime,
+    version: row.version,
+    capabilities: JSON.parse(row.capabilities),
+    status: row.status as Agent["status"],
+    last_heartbeat_at: row.last_heartbeat_at,
+    metadata: JSON.parse(row.metadata),
+  };
+}
+
+type TokenRow = {
+  token_id: string;
+  token_hash: string;
+  scopes: string;
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+};
+
+function tokenFromRow(row: TokenRow): StoredToken {
+  return {
+    token_id: row.token_id,
+    token_hash: row.token_hash,
+    scopes: JSON.parse(row.scopes),
+    created_at: row.created_at,
+    expires_at: row.expires_at,
+    revoked_at: row.revoked_at,
   };
 }
 
@@ -421,6 +487,189 @@ export class SqliteStorageAdapter implements StorageAdapter {
       )
       .all(repositoryId) as EventRow[];
     return rows.map(eventFromRow);
+  }
+
+  listAllEvents(): EventEnvelope[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM events ORDER BY rowid ASC`)
+      .all() as EventRow[];
+    return rows.map(eventFromRow);
+  }
+
+  /**
+   * Daemon-facing cursor read: returns events with `rowid > cursor` (0 =
+   * from the beginning), in global insertion order, optionally filtered
+   * to one repository, capped at `limit`. The returned `cursor` on each
+   * event is the opaque value a client should pass back as `since` to
+   * resume exactly after that event with no gaps. This is what backs both
+   * `GET /v1/events` (one-shot page) and the replay phase of
+   * `GET /v1/events/stream` (WebSocket) in apps/daemon.
+   */
+  listEventsSince(
+    cursor: number,
+    opts?: { repositoryId?: string; limit?: number },
+  ): { events: EventWithCursor[]; nextCursor: number } {
+    const limit = opts?.limit ?? 500;
+    const rows = opts?.repositoryId
+      ? (this.db
+          .prepare(
+            `SELECT rowid as _cursor, * FROM events WHERE rowid > ? AND repository_id = ? ORDER BY rowid ASC LIMIT ?`,
+          )
+          .all(cursor, opts.repositoryId, limit) as (EventRow & {
+          _cursor: number;
+        })[])
+      : (this.db
+          .prepare(
+            `SELECT rowid as _cursor, * FROM events WHERE rowid > ? ORDER BY rowid ASC LIMIT ?`,
+          )
+          .all(cursor, limit) as (EventRow & { _cursor: number })[]);
+    const events = rows.map((row) => ({
+      ...eventFromRow(row),
+      cursor: row._cursor,
+    }));
+    const nextCursor =
+      events.length > 0 ? events[events.length - 1]!.cursor : cursor;
+    return { events, nextCursor };
+  }
+
+  /** Current maximum event cursor (rowid), or 0 if no events exist yet. */
+  latestEventCursor(): number {
+    const row = this.db
+      .prepare(`SELECT MAX(rowid) as m FROM events`)
+      .get() as { m: number | null };
+    return row.m ?? 0;
+  }
+
+  // --- Agents (daemon-facing; not part of the core StorageAdapter contract) ---
+  getAgent(agentId: string): Agent | undefined {
+    const row = this.db
+      .prepare(`SELECT * FROM agents WHERE agent_id = ?`)
+      .get(agentId) as AgentRow | undefined;
+    return row ? agentFromRow(row) : undefined;
+  }
+
+  saveAgent(agent: Agent): void {
+    this.db
+      .prepare(
+        `INSERT INTO agents (agent_id, namespace_id, display_name, runtime, version, capabilities, status, last_heartbeat_at, metadata)
+         VALUES (@agent_id, @namespace_id, @display_name, @runtime, @version, @capabilities, @status, @last_heartbeat_at, @metadata)
+         ON CONFLICT(agent_id) DO UPDATE SET
+           display_name=excluded.display_name, runtime=excluded.runtime,
+           version=excluded.version, capabilities=excluded.capabilities,
+           status=excluded.status, last_heartbeat_at=excluded.last_heartbeat_at,
+           metadata=excluded.metadata`,
+      )
+      .run({
+        ...agent,
+        capabilities: JSON.stringify(agent.capabilities),
+        metadata: JSON.stringify(agent.metadata),
+      });
+  }
+
+  listAgents(): Agent[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM agents ORDER BY agent_id ASC`)
+      .all() as AgentRow[];
+    return rows.map(agentFromRow);
+  }
+
+  // --- Tasks: daemon-facing listing (core only needs get/save) ---------------
+  listTasks(filter?: { repositoryId?: string; status?: string }): Task[] {
+    const clauses: string[] = [];
+    const args: string[] = [];
+    if (filter?.repositoryId) {
+      clauses.push("repository_id = ?");
+      args.push(filter.repositoryId);
+    }
+    if (filter?.status) {
+      clauses.push("status = ?");
+      args.push(filter.status);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(`SELECT * FROM tasks ${where} ORDER BY created_at ASC`)
+      .all(...args) as TaskRow[];
+    return rows.map(taskFromRow);
+  }
+
+  countTasksByStatus(): Record<string, number> {
+    const rows = this.db
+      .prepare(`SELECT status, COUNT(*) as c FROM tasks GROUP BY status`)
+      .all() as { status: string; c: number }[];
+    const out: Record<string, number> = {};
+    for (const row of rows) out[row.status] = row.c;
+    return out;
+  }
+
+  // --- Resource claims: daemon-facing listing/manual release ------------------
+  listActiveResourceClaims(repositoryId?: string): ResourceClaim[] {
+    const rows = repositoryId
+      ? (this.db
+          .prepare(
+            `SELECT * FROM resource_claims WHERE repository_id = ? AND released = 0`,
+          )
+          .all(repositoryId) as ClaimRow[])
+      : (this.db
+          .prepare(`SELECT * FROM resource_claims WHERE released = 0`)
+          .all() as ClaimRow[]);
+    return rows.map(claimFromRow);
+  }
+
+  getResourceClaim(claimId: string): ResourceClaim | undefined {
+    const row = this.db
+      .prepare(`SELECT * FROM resource_claims WHERE resource_claim_id = ?`)
+      .get(claimId) as ClaimRow | undefined;
+    return row ? claimFromRow(row) : undefined;
+  }
+
+  /** Manually releases a single claim (e.g. `POST /v1/claims/:id/release`). Returns false if the claim did not exist or was already released. */
+  releaseResourceClaim(claimId: string): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE resource_claims SET released = 1 WHERE resource_claim_id = ? AND released = 0`,
+      )
+      .run(claimId);
+    return result.changes > 0;
+  }
+
+  // --- Tokens (daemon-only; see schema.ts) -----------------------------------
+  saveToken(token: StoredToken): void {
+    this.db
+      .prepare(
+        `INSERT INTO tokens (token_id, token_hash, scopes, created_at, expires_at, revoked_at)
+         VALUES (@token_id, @token_hash, @scopes, @created_at, @expires_at, @revoked_at)
+         ON CONFLICT(token_id) DO UPDATE SET revoked_at = excluded.revoked_at`,
+      )
+      .run({ ...token, scopes: JSON.stringify(token.scopes) });
+  }
+
+  getTokenByHash(tokenHash: string): StoredToken | undefined {
+    const row = this.db
+      .prepare(`SELECT * FROM tokens WHERE token_hash = ?`)
+      .get(tokenHash) as TokenRow | undefined;
+    return row ? tokenFromRow(row) : undefined;
+  }
+
+  listTokens(): StoredToken[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM tokens ORDER BY created_at ASC`)
+      .all() as TokenRow[];
+    return rows.map(tokenFromRow);
+  }
+
+  revokeToken(tokenId: string, revokedAtIso: string): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE tokens SET revoked_at = ? WHERE token_id = ? AND revoked_at IS NULL`,
+      )
+      .run(revokedAtIso, tokenId);
+    return result.changes > 0;
+  }
+
+  /** Cheap reachability check for `GET /readyz`. */
+  ping(): boolean {
+    const row = this.db.prepare(`SELECT 1 as ok`).get() as { ok: number };
+    return row.ok === 1;
   }
 
   // --- Idempotency --------------------------------------------------------

@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { SqliteStorageAdapter } from "./adapter.js";
 
 export { SqliteStorageAdapter } from "./adapter.js";
+export type { StoredToken, EventWithCursor } from "./adapter.js";
 export { SCHEMA_SQL } from "./schema.js";
 
 export function createInMemorySqliteStorage(): SqliteStorageAdapter {
