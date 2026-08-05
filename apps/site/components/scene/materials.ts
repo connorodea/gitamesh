@@ -1,3 +1,28 @@
+// ---------------------------------------------------------------------------
+// Gitamesh hero — coordination constellation
+//
+//   NodeGlowMaterial      fresnel rim-light + 3D simplex shimmer; sweeps
+//                         from a resting idle glow to a hot claimed core
+//   EdgeGlowMaterial      per-vertex travelling pulse along the wire —
+//                         a claim reads as energy flowing outward, not a
+//                         flat color swap
+//   AmbientFieldMaterial  GPU-only drifting background particle field,
+//                         zero per-frame CPU writes, additive depth haze
+//   (post pass, see MeshScene.tsx)   Bloom + Noise + Vignette
+//
+// Goal: a believable coordination mesh — agents (nodes) racing to claim
+// tasks, the claim itself visualized as travelling energy along the graph,
+// sitting in front of a living depth-hazed field rather than a static
+// backdrop or a single cycling sphere.
+//
+// Known issue: DepthOfField was attempted (oryzo.ai-style near/far blur)
+// and reverted — a real glBlitFramebuffer depth/stencil aliasing error on
+// this r3f v8 / three 0.169 pairing blanks the canvas outright. Fog + bloom
+// stand in for the depth cue until postprocessing moves past this combo.
+//
+// Apache-2.0 · github.com/connorodea/gitamesh
+// ---------------------------------------------------------------------------
+
 import { shaderMaterial } from "@react-three/drei";
 import { extend } from "@react-three/fiber";
 import * as THREE from "three";
