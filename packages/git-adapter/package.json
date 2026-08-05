@@ -1,0 +1,28 @@
+{
+  "name": "@gitamesh/git-adapter",
+  "version": "0.1.0",
+  "description": "Safe, porcelain-based Git CLI wrapper: repository identity, worktree discovery, and filesystem-aware resource-key/symlink-escape validation for Gitamesh.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --root ../.. packages/git-adapter"
+  },
+  "dependencies": {
+    "@gitamesh/core": "workspace:*",
+    "@gitamesh/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}
