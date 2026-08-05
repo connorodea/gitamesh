@@ -11,6 +11,14 @@ production deployment is expected to land with a future Postgres
 storage adapter implementing the same `StorageAdapter` interface; this
 daemon's route/auth/observability layer would not need to change.
 
+## Running in Docker
+
+See [`docker/README.md`](../../docker/README.md) for the production
+Dockerfile (`Dockerfile` in this directory), `docker-compose.yml` at the
+repo root, environment variables, the volume-mount pattern for SQLite
+persistence, and why the container's `GITAMESH_BIND_HOST` default
+(`0.0.0.0`) differs from this section's bare-metal default (`127.0.0.1`).
+
 ## Running locally
 
 ```bash

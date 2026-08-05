@@ -1,0 +1,33 @@
+# Applies to any `docker build` run from the repo root (the required build
+# context for apps/daemon/Dockerfile — see that file's header comment).
+node_modules
+**/node_modules
+.git
+.github
+
+dist
+**/dist
+.next
+**/.next
+out
+apps/site/out
+
+*.db
+*.db-wal
+*.db-shm
+
+coverage
+**/coverage
+
+*.log
+npm-debug.log*
+
+.DS_Store
+**/.DS_Store
+
+.env
+.env.*
+!.env.example
+
+.vscode
+.idea

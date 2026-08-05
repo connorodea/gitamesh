@@ -1,0 +1,36 @@
+# Local dev / single-node deployment for the Gitamesh coordination daemon.
+#
+# This compose file has exactly one service on purpose: the only thing this
+# repo currently ships that needs a container is @gitamesh/daemon, and its
+# only persistence dependency is the embedded SQLite file
+# (packages/storage-sqlite — see that package's docs for why it's
+# single-process/single-connection, not a shared server). There is no
+# Postgres, Redis, or Neo4j here because no storage adapter for them exists
+# in this codebase yet (see apps/daemon/README.md's "What's NOT implemented"
+# section). When a Postgres-backed StorageAdapter lands, this file should
+# grow a `postgres` service + a `DATABASE_URL`-style env var for the daemon;
+# until then, one service + one named volume is the whole story.
+services:
+  daemon:
+    build:
+      context: .
+      dockerfile: apps/daemon/Dockerfile
+    image: gitamesh-daemon:local
+    container_name: gitamesh-daemon
+    ports:
+      - "8787:8787"
+    environment:
+      # 0.0.0.0 (not the bare-metal-default 127.0.0.1) so the daemon is
+      # reachable from outside the container via the published port above.
+      # See apps/daemon/Dockerfile and docker/README.md for the full
+      # bare-metal-vs-container bind-host rationale.
+      GITAMESH_BIND_HOST: "0.0.0.0"
+      GITAMESH_PORT: "8787"
+      GITAMESH_DB_PATH: "/data/gitamesh.db"
+      LOG_LEVEL: "info"
+    volumes:
+      - gitamesh-data:/data
+    restart: unless-stopped
+
+volumes:
+  gitamesh-data:

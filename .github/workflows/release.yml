@@ -1,0 +1,59 @@
+name: Release
+
+# Milestone scope: manually-triggered build + tag verification only.
+#
+# This deliberately does NOT push to a registry (e.g. GHCR) yet. Publishing
+# requires deciding on an image naming scheme, setting up registry
+# credentials/permissions (GITHUB_TOKEN packages:write scope or a dedicated
+# PAT), and deciding on a tagging/retention policy — none of which should be
+# wired up blind as a side effect of a Docker-packaging task. Follow-up work:
+# add a `docker/login-action` + `docker/build-push-action` step with
+# `push: true` once that's decided, gated behind repository secrets.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to build (e.g. v0.1.0, or a commit sha)"
+        required: false
+        default: "manual"
+
+jobs:
+  build-and-tag:
+    name: Build + tag daemon image (no push)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build daemon image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/daemon/Dockerfile
+          push: false
+          load: true
+          tags: |
+            gitamesh-daemon:${{ github.event.inputs.tag }}
+            gitamesh-daemon:${{ github.sha }}
+
+      - name: Verify the built image actually runs and answers /healthz
+        run: |
+          set -euo pipefail
+          docker run -d --name gitamesh-release-check -p 8787:8787 \
+            gitamesh-daemon:${{ github.sha }}
+          for i in $(seq 1 15); do
+            if curl -sf http://127.0.0.1:8787/healthz; then
+              echo "healthz OK"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "daemon never became healthy" >&2
+          docker logs gitamesh-release-check || true
+          exit 1
+
+      - name: Show built image tags (no push performed)
+        run: docker image ls gitamesh-daemon
