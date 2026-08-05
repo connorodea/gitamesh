@@ -1,6 +1,10 @@
 import { Hero3D } from "@/components/Hero3D";
 import { GithubIcon } from "@/components/GithubIcon";
 import { Mark } from "@/components/Mark";
+import { Reveal, RevealGroup } from "@/components/Reveal";
+import { ProblemCard } from "@/components/ProblemCard";
+import { PrimitiveCard } from "@/components/PrimitiveCard";
+import { TerminalBlock } from "@/components/TerminalBlock";
 
 const PROBLEMS = [
   {
@@ -137,7 +141,7 @@ export default function Home() {
         {/* PROBLEM */}
         <section id="problem" className="border-b border-line/60 py-20 sm:py-28">
           <div className="mx-auto max-w-6xl px-6">
-            <div className="max-w-2xl">
+            <Reveal className="max-w-2xl">
               <h2 className="font-mono text-sm font-semibold uppercase tracking-widest text-mesh">
                 The problem
               </h2>
@@ -150,15 +154,12 @@ export default function Home() {
                 CI until you trace them back to two workers editing the same
                 thing at once.
               </p>
-            </div>
-            <div className="mt-12 grid gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-2">
+            </Reveal>
+            <RevealGroup className="mt-12 grid gap-px overflow-hidden rounded-xl border border-line bg-line sm:grid-cols-2">
               {PROBLEMS.map((p) => (
-                <div key={p.title} className="bg-ink-900 p-6 sm:p-8">
-                  <h3 className="font-semibold text-fg">{p.title}</h3>
-                  <p className="mt-2 text-sm text-fg-muted">{p.body}</p>
-                </div>
+                <ProblemCard key={p.title} title={p.title} body={p.body} />
               ))}
-            </div>
+            </RevealGroup>
           </div>
         </section>
 
@@ -168,35 +169,29 @@ export default function Home() {
           className="border-b border-line/60 bg-ink-900/40 py-20 sm:py-28"
         >
           <div className="mx-auto max-w-6xl px-6">
-            <div className="max-w-2xl">
+            <Reveal className="max-w-2xl">
               <h2 className="font-mono text-sm font-semibold uppercase tracking-widest text-mesh">
                 How it works
               </h2>
               <p className="mt-3 text-2xl font-semibold tracking-tight text-fg sm:text-3xl">
                 Four primitives, one coordination engine.
               </p>
-            </div>
-            <ol className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            </Reveal>
+            <RevealGroup
+              as="ol"
+              className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4"
+            >
               {PRIMITIVES.map((p, i) => (
-                <li
-                  key={p.title}
-                  className="rounded-xl border border-line bg-ink-950/60 p-6"
-                >
-                  <span className="font-mono text-xs text-claim">
-                    {String(i + 1).padStart(2, "0")}
-                  </span>
-                  <h3 className="mt-3 font-semibold text-fg">{p.title}</h3>
-                  <p className="mt-2 text-sm text-fg-muted">{p.body}</p>
-                </li>
+                <PrimitiveCard key={p.title} index={i} title={p.title} body={p.body} />
               ))}
-            </ol>
+            </RevealGroup>
           </div>
         </section>
 
         {/* QUICKSTART */}
         <section id="quickstart" className="py-20 sm:py-28">
           <div className="mx-auto max-w-4xl px-6">
-            <div className="max-w-2xl">
+            <Reveal className="max-w-2xl">
               <h2 className="font-mono text-sm font-semibold uppercase tracking-widest text-mesh">
                 Quickstart
               </h2>
@@ -209,43 +204,10 @@ export default function Home() {
                 operations, and to git directly for repo/worktree status — no
                 daemon required for local checks.
               </p>
-            </div>
-            <div className="mt-10 overflow-hidden rounded-xl border border-line bg-ink-900">
-              <div className="flex items-center gap-2 border-b border-line px-4 py-3">
-                <span className="h-2.5 w-2.5 rounded-full bg-line" />
-                <span className="h-2.5 w-2.5 rounded-full bg-line" />
-                <span className="h-2.5 w-2.5 rounded-full bg-line" />
-                <span className="ml-2 font-mono text-xs text-fg-faint">
-                  terminal
-                </span>
-              </div>
-              <pre className="overflow-x-auto px-5 py-5 font-mono text-[13px] leading-relaxed text-fg">
-{`$ pnpm add -g @gitamesh/cli
-$ gitamesh init --daemon-url http://127.0.0.1:4477
-$ gitamesh doctor
-✔ git repository detected
-✔ daemon reachable at http://127.0.0.1:4477
-✔ token valid (scopes: agent, task, claim)
-
-$ gitamesh repo register --display-name "gitamesh"
-$ gitamesh agent register \\
-    --display-name "claude-code-1" \\
-    --runtime "claude-code" \\
-    --capability "typescript" --capability "test"
-
-$ gitamesh task create \\
-    --workflow-id wf_default \\
-    --repository-id repo_gitamesh \\
-    --title "Fix flaky worktree test" \\
-    --priority high
-
-$ gitamesh task claim <taskId> \\
-    --agent-id <agentId> \\
-    --workspace-session-id <sessionId>
-# exactly one caller gets the claim — every other
-# attempt fails fast with a 409, fencing token intact`}
-              </pre>
-            </div>
+            </Reveal>
+            <Reveal className="mt-10">
+              <TerminalBlock />
+            </Reveal>
             <p className="mt-4 text-sm text-fg-faint">
               Every read command supports{" "}
               <code className="font-mono">--json</code> for scripting. Full
@@ -270,20 +232,20 @@ $ gitamesh task claim <taskId> \\
           </div>
           <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
             <a
-              className="focus-ring flex items-center gap-1.5 hover:text-fg"
+              className="focus-ring flex items-center gap-1.5 transition-colors duration-200 hover:text-mesh"
               href="https://github.com/connorodea/gitamesh"
             >
               <GithubIcon className="h-4 w-4" />
               Source
             </a>
             <a
-              className="focus-ring hover:text-fg"
+              className="focus-ring transition-colors duration-200 hover:text-mesh"
               href="https://juricratic.com"
             >
               From the team behind Juricratic
             </a>
             <a
-              className="focus-ring hover:text-fg"
+              className="focus-ring transition-colors duration-200 hover:text-mesh"
               href="https://api.gitamesh.com/healthz"
             >
               API status
