@@ -39,8 +39,19 @@ export function AnnotationLayer({
   stageRef,
   overlayRef,
 }: {
-  /** World-space node positions, in constellation-local coordinates. */
-  anchors: [number, number, number][];
+  /**
+   * Live world positions of the four mechanism parts, published each frame by
+   * ExplodedMechanism.
+   *
+   * These used to be static constellation-node positions, which meant the
+   * callouts labelled arbitrary points on a rotating globe — the labels said
+   * CLAIM / FENCE / LEASE / LOG but pointed at nothing in particular. Now they
+   * track the actual named parts of the authored mechanism, so the leader
+   * lines land on the components they name. That is the whole point of the
+   * device, and it only became possible with an asset that has addressable
+   * parts.
+   */
+  anchors: React.MutableRefObject<THREE.Vector3[]>;
   stageRef: React.MutableRefObject<StageState>;
   overlayRef: React.RefObject<HTMLDivElement>;
 }) {
@@ -66,13 +77,12 @@ export function AnnotationLayer({
     const children = overlay.children;
     for (let i = 0; i < CALLOUTS.length; i++) {
       const el = children[i] as HTMLElement | undefined;
-      const anchor = anchors[CALLOUTS[i].node];
+      const anchor = anchors.current[i];
       if (!el || !anchor) continue;
 
-      scratch.current
-        .set(anchor[0], anchor[1], anchor[2])
-        .multiplyScalar(stage.spread)
-        .project(camera);
+      // Already a world position — the part publishes it via getWorldPosition,
+      // so no local-to-world scaling is applied here.
+      scratch.current.copy(anchor).project(camera);
 
       const x = (scratch.current.x * 0.5 + 0.5) * size.width;
       const y = (-scratch.current.y * 0.5 + 0.5) * size.height;

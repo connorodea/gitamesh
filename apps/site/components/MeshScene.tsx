@@ -11,7 +11,8 @@ import {
 } from "@react-three/postprocessing";
 import { BlendFunction } from "postprocessing";
 import * as THREE from "three";
-import { Constellation, buildMesh, NODE_COUNTS } from "./scene/Constellation";
+import { Constellation } from "./scene/Constellation";
+import { ExplodedMechanism } from "./scene/ExplodedMechanism";
 import { AmbientField } from "./scene/AmbientField";
 import { TimeCorridor } from "./scene/TimeCorridor";
 import { DaughterGlobes } from "./scene/DaughterGlobes";
@@ -185,13 +186,15 @@ export function MeshScene({
   const [dense, setDense] = useState(tier !== "low");
   const stageRef = useRef<StageState>({ ...STATIC_STAGE });
 
-  const anchors = useMemo(
-    () =>
-      buildMesh(dense ? NODE_COUNTS.desktop : NODE_COUNTS.mobile).map(
-        (n) => n.position
-      ),
-    [dense]
-  );
+  // Four reusable vectors the mechanism writes its part world-positions into
+  // each frame, and the annotation layer reads. Allocated once so the
+  // per-frame path never touches the allocator.
+  const partAnchors = useRef([
+    new THREE.Vector3(),
+    new THREE.Vector3(),
+    new THREE.Vector3(),
+    new THREE.Vector3(),
+  ]);
 
   const parked = useOffscreenParked(!settings.fullPageStage && !reducedMotion);
   const tabHidden = useTabHidden();
@@ -272,14 +275,26 @@ export function MeshScene({
       />
       <TimeCorridor reducedMotion={reducedMotion} stageRef={stageRef} />
 
-      {/* Callouts require a travelling camera to point at anything meaningful,
-          and a full-page stage to have a section to belong to. */}
-      {settings.fullPageStage && !reducedMotion && (
-        <AnnotationLayer
-          anchors={anchors}
-          stageRef={stageRef}
-          overlayRef={annotationRef}
-        />
+      {/* The mechanism and its callouts are ONE device on ONE timeline: the
+          GLB supplies four addressable, authored parts, and the callouts
+          label them. Both are gated to the full-page stage — the low tier's
+          hero-scoped stage never reaches this act, so there is no reason to
+          make a phone fetch a 65 KB model it will never render. */}
+      {settings.fullPageStage && (
+        <Suspense fallback={null}>
+          <ExplodedMechanism
+            reducedMotion={reducedMotion}
+            stageRef={stageRef}
+            anchorsRef={partAnchors}
+          />
+          {!reducedMotion && (
+            <AnnotationLayer
+              anchors={partAnchors}
+              stageRef={stageRef}
+              overlayRef={annotationRef}
+            />
+          )}
+        </Suspense>
       )}
 
       {settings.postFx && (

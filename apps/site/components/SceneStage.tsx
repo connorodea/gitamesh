@@ -160,53 +160,63 @@ export function SceneStage() {
   const fullPage = TIER_SETTINGS[tier].fullPageStage;
 
   return (
-    <div
-      id="scene-stage"
-      className={
-        fullPage
-          ? "pointer-events-none fixed inset-0 z-0"
-          : "pointer-events-none absolute inset-0 z-0"
-      }
-      role="presentation"
-    >
-      {!reducedMotion && <SceneLoader done={mounted} />}
-
-      <div
-        className="absolute inset-0 transition-opacity duration-1000 ease-out"
-        style={{ opacity: mounted ? 1 : 0 }}
-      >
-        <MeshScene
-          reducedMotion={reducedMotion}
-          tier={tier}
-          annotationRef={annotationRef}
-        />
-      </div>
-
-      {/* Schematic callouts pinned to constellation nodes. Real DOM, drawn
-          over the canvas, positioned by AnnotationLayer inside the scene. */}
-      {fullPage && !reducedMotion && (
-        <AnnotationOverlay overlayRef={annotationRef} />
-      )}
-
-      {/* Readability scrim. Driven by `--scrim` from the scroll store, which
-          is published on every scroll regardless of motion preference — so a
-          reduced-motion visitor still gets full text contrast, they just
-          don't get a moving camera behind it. */}
+    <>
+      {/* SCRIM — its own layer, BELOW the canvas.
+          Splitting it out of the stage is what makes weaving possible: page
+          content can now be placed at a z-index between the scrim and the
+          canvas, so geometry passes in FRONT of it while the scrim still
+          guarantees its contrast. A single combined stage layer forced every
+          piece of content to be strictly in front of all geometry, which is
+          exactly the "3D wallpaper behind a webpage" problem. */}
       <div
         aria-hidden="true"
-        className="absolute inset-0 bg-ink-950"
+        className={
+          fullPage
+            ? "pointer-events-none fixed inset-0 z-[5] bg-ink-950"
+            : "pointer-events-none absolute inset-0 z-[5] bg-ink-950"
+        }
         style={{ opacity: "calc(var(--scrim, 0) * 0.82)" }}
       />
-      {/* Grounds the opening shot into the page below it; retires as the
-          scrim takes over so it never reads as a permanent viewport band. */}
-      <div
-        aria-hidden="true"
-        className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-ink-950 to-transparent"
-        style={{ opacity: "calc(1 - var(--scrim, 0))" }}
-      />
 
-      <ViewfinderFrame />
-      <StageHud />
-    </div>
+      <div
+        id="scene-stage"
+        className={
+          fullPage
+            ? "pointer-events-none fixed inset-0 z-10"
+            : "pointer-events-none absolute inset-0 z-10"
+        }
+        role="presentation"
+      >
+        {!reducedMotion && <SceneLoader done={mounted} />}
+
+        <div
+          className="absolute inset-0 transition-opacity duration-1000 ease-out"
+          style={{ opacity: mounted ? 1 : 0 }}
+        >
+          <MeshScene
+            reducedMotion={reducedMotion}
+            tier={tier}
+            annotationRef={annotationRef}
+          />
+        </div>
+
+        {/* Schematic callouts pinned to the mechanism's named parts. Real DOM,
+            drawn over the canvas, positioned by AnnotationLayer in the scene. */}
+        {fullPage && !reducedMotion && (
+          <AnnotationOverlay overlayRef={annotationRef} />
+        )}
+
+        {/* Grounds the opening shot into the page below it; retires as the
+            scrim takes over so it never reads as a permanent viewport band. */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-ink-950 to-transparent"
+          style={{ opacity: "calc(1 - var(--scrim, 0))" }}
+        />
+
+        <ViewfinderFrame />
+        <StageHud />
+      </div>
+    </>
   );
 }

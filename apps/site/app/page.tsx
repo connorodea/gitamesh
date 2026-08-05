@@ -95,10 +95,10 @@ export default function Home() {
         </nav>
       </header>
 
-      <main className="relative z-10">
+      <main>
         {/* HERO — a full viewport, so the opening shot is the whole screen
             rather than a 440px band with copy stacked underneath it. */}
-        <section className="relative isolate flex min-h-[100svh] flex-col items-center justify-center overflow-hidden px-6 pb-32 pt-24">
+        <section className="relative flex min-h-[100svh] flex-col items-center justify-center overflow-hidden px-6 pb-32 pt-24">
           <div className="pointer-events-none absolute inset-0 -z-10 bg-grid bg-[size:56px_56px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_45%,black,transparent)]" />
           <HeroIntro />
         </section>
@@ -106,7 +106,9 @@ export default function Home() {
         {/* PROBLEM */}
         <section id="problem" className="relative py-28 sm:py-40">
           <div className="mx-auto max-w-6xl px-6">
-            <Reveal className="max-w-3xl">
+            {/* z-[8]: above the scrim (z-5), below the canvas (z-10) — so
+                geometry crosses IN FRONT of the heading. */}
+            <Reveal className="relative z-[8] max-w-3xl">
               <Eyebrow>The problem</Eyebrow>
               <p className="mt-5 text-balance text-[clamp(1.9rem,4.2vw,3.25rem)] font-semibold leading-[1.05] tracking-[-0.03em] text-fg">
                 More agents, same repo, no traffic control.
@@ -121,7 +123,7 @@ export default function Home() {
             {/* The problem grid is deliberately NOT a flush mosaic any more:
                 separated cards can each hold their own depth and yaw, which a
                 shared-border slab cannot. */}
-            <SpatialGroup className="mt-16 grid gap-4 sm:grid-cols-2">
+            <SpatialGroup className="relative z-30 mt-16 grid gap-4 sm:grid-cols-2">
               {PROBLEMS.map((p) => (
                 <ProblemCard key={p.title} title={p.title} body={p.body} />
               ))}
@@ -132,7 +134,9 @@ export default function Home() {
         {/* HOW IT WORKS */}
         <section id="how-it-works" className="relative py-28 sm:py-40">
           <div className="mx-auto max-w-6xl px-6">
-            <Reveal className="max-w-3xl">
+            {/* z-[8]: above the scrim (z-5), below the canvas (z-10) — so
+                geometry crosses IN FRONT of the heading. */}
+            <Reveal className="relative z-[8] max-w-3xl">
               <Eyebrow>How it works</Eyebrow>
               <p className="mt-5 text-balance text-[clamp(1.9rem,4.2vw,3.25rem)] font-semibold leading-[1.05] tracking-[-0.03em] text-fg">
                 Four primitives, one coordination engine.
@@ -141,7 +145,7 @@ export default function Home() {
             <SpatialGroup
               as="ol"
               itemAs="li"
-              className="mt-16 grid gap-5 sm:grid-cols-2 lg:grid-cols-4"
+              className="relative z-30 mt-16 grid gap-5 sm:grid-cols-2 lg:grid-cols-4"
             >
               {PRIMITIVES.map((p, i) => (
                 <PrimitiveCard key={p.title} index={i} title={p.title} body={p.body} />
@@ -153,7 +157,7 @@ export default function Home() {
         {/* QUICKSTART */}
         <section id="quickstart" className="relative py-28 sm:py-40">
           <div className="mx-auto max-w-4xl px-6">
-            <Reveal className="max-w-2xl">
+            <Reveal className="relative z-30 max-w-2xl">
               <Eyebrow>Quickstart</Eyebrow>
               <p className="mt-5 text-balance text-[clamp(1.9rem,4.2vw,3.25rem)] font-semibold leading-[1.05] tracking-[-0.03em] text-fg">
                 Register the repo, register an agent, claim a task.
@@ -165,10 +169,10 @@ export default function Home() {
                 daemon required for local checks.
               </p>
             </Reveal>
-            <Reveal className="mt-12">
+            <Reveal className="relative z-30 mt-12">
               <TerminalBlock />
             </Reveal>
-            <p className="mt-5 text-sm text-fg-faint">
+            <p className="relative z-30 mt-5 text-sm text-fg-faint">
               Every read command supports{" "}
               <code className="font-mono">--json</code> for scripting. Full
               command reference in{" "}
@@ -184,7 +188,7 @@ export default function Home() {
         </section>
       </main>
 
-      <footer className="relative z-10 border-t border-line/50 bg-ink-950/80 py-12 backdrop-blur-xl">
+      <footer className="relative z-30 border-t border-line/50 bg-ink-950/80 py-12 backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl flex-col items-center gap-4 px-6 text-sm text-fg-faint sm:flex-row sm:justify-between">
           <div className="flex items-center gap-2">
             <Mark className="h-4 w-4" />
