@@ -5,3 +5,6 @@ dist/
 *.db-shm
 .DS_Store
 coverage/
+.next/
+apps/site/out/
+apps/site/next-env.d.ts
