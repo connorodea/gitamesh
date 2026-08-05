@@ -96,10 +96,14 @@ export default function Home() {
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-ink-950/10 to-ink-950" />
           </div>
           <div className="mx-auto -mt-64 max-w-3xl px-6 pb-24 text-center sm:-mt-80">
-            <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-line bg-ink-900/70 px-3 py-1 text-xs text-fg-muted">
+            <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-line bg-ink-900/70 px-3 py-1 font-mono text-xs text-fg-muted">
               <span className="h-1.5 w-1.5 rounded-full bg-claim" />
               v0.1.0 — open source, early
             </p>
+            <div
+              aria-hidden="true"
+              className="mx-auto mb-4 h-px w-16 border-t border-dashed border-line"
+            />
             <h1 className="text-4xl font-semibold tracking-tight text-fg sm:text-6xl">
               Gitamesh
             </h1>
@@ -134,7 +138,7 @@ export default function Home() {
         <section id="problem" className="border-b border-line/60 py-20 sm:py-28">
           <div className="mx-auto max-w-6xl px-6">
             <div className="max-w-2xl">
-              <h2 className="text-sm font-semibold uppercase tracking-widest text-mesh">
+              <h2 className="font-mono text-sm font-semibold uppercase tracking-widest text-mesh">
                 The problem
               </h2>
               <p className="mt-3 text-2xl font-semibold tracking-tight text-fg sm:text-3xl">
@@ -165,7 +169,7 @@ export default function Home() {
         >
           <div className="mx-auto max-w-6xl px-6">
             <div className="max-w-2xl">
-              <h2 className="text-sm font-semibold uppercase tracking-widest text-mesh">
+              <h2 className="font-mono text-sm font-semibold uppercase tracking-widest text-mesh">
                 How it works
               </h2>
               <p className="mt-3 text-2xl font-semibold tracking-tight text-fg sm:text-3xl">
@@ -193,7 +197,7 @@ export default function Home() {
         <section id="quickstart" className="py-20 sm:py-28">
           <div className="mx-auto max-w-4xl px-6">
             <div className="max-w-2xl">
-              <h2 className="text-sm font-semibold uppercase tracking-widest text-mesh">
+              <h2 className="font-mono text-sm font-semibold uppercase tracking-widest text-mesh">
                 Quickstart
               </h2>
               <p className="mt-3 text-2xl font-semibold tracking-tight text-fg sm:text-3xl">

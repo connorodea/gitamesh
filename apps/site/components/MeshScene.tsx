@@ -1,160 +1,126 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { EffectComposer, Bloom, Vignette, Noise } from "@react-three/postprocessing";
 import * as THREE from "three";
+import { Constellation } from "./scene/Constellation";
+import { AmbientField } from "./scene/AmbientField";
+import { getDeviceTier, TIER_SETTINGS } from "./scene/deviceTier";
 
 /**
- * The mesh, visualized: a small constellation of nodes (agents / worktrees)
- * connected by edges (the coordination graph). Every couple of seconds a
- * "claim" fires — one node wins the race, briefly glowing gold while its
- * neighbors dim — the same guarantee the daemon enforces for real: exactly
- * one agent holds a lease on a given resource at a time.
+ * Subtle camera parallax on pointer movement — a small offset applied on
+ * top of the scene's own auto-rotation, giving the constellation real
+ * depth-of-field-adjacent parallax as the viewer's mouse moves. Skipped
+ * entirely under prefers-reduced-motion.
  */
+function CameraParallax({ reducedMotion }: { reducedMotion: boolean }) {
+  const { camera, pointer } = useThree();
+  const target = useRef(new THREE.Vector3(0, 0, 8.5));
 
-const NODE_COUNT_DESKTOP = 22;
-const NODE_COUNT_MOBILE = 13;
-const CLAIM_INTERVAL_MS = 2200;
-
-type Node = {
-  position: [number, number, number];
-  neighbors: number[];
-};
-
-function buildMesh(count: number): Node[] {
-  // Fibonacci-sphere distribution for an even, organic node cluster.
-  const points: [number, number, number][] = [];
-  const golden = Math.PI * (3 - Math.sqrt(5));
-  for (let i = 0; i < count; i++) {
-    const y = 1 - (i / (count - 1)) * 2;
-    const radius = Math.sqrt(1 - y * y);
-    const theta = golden * i;
-    const x = Math.cos(theta) * radius;
-    const z = Math.sin(theta) * radius;
-    points.push([x * 3.2, y * 3.2, z * 3.2]);
-  }
-
-  // Connect each node to its 3 nearest neighbors -> a believable mesh graph.
-  return points.map((p, i) => {
-    const distances = points
-      .map((q, j) => ({
-        j,
-        d:
-          i === j
-            ? Infinity
-            : (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2,
-      }))
-      .sort((a, b) => a.d - b.d)
-      .slice(0, 3)
-      .map((e) => e.j);
-    return { position: p, neighbors: distances };
+  useFrame(() => {
+    if (reducedMotion) return;
+    target.current.x = pointer.x * 0.5;
+    target.current.y = pointer.y * 0.3;
+    camera.position.x += (target.current.x - camera.position.x) * 0.04;
+    camera.position.y += (target.current.y - camera.position.y) * 0.04;
+    camera.lookAt(0, 0, 0);
   });
+
+  return null;
 }
 
-function MeshGraph({ reducedMotion, dense }: { reducedMotion: boolean; dense: boolean }) {
-  const count = dense ? NODE_COUNT_DESKTOP : NODE_COUNT_MOBILE;
-  const nodes = useMemo(() => buildMesh(count), [count]);
-  const groupRef = useRef<THREE.Group>(null);
-  const [claimedIndex, setClaimedIndex] = useState(reducedMotion ? 0 : -1);
-  const claimClock = useRef(0);
-  const order = useRef(
-    [...Array(count).keys()].sort(() => Math.random() - 0.5)
-  );
-
-  const edges = useMemo(() => {
-    const seen = new Set<string>();
-    const pairs: [number, number][] = [];
-    nodes.forEach((n, i) => {
-      n.neighbors.forEach((j) => {
-        const key = i < j ? `${i}-${j}` : `${j}-${i}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          pairs.push([i, j]);
-        }
-      });
-    });
-    return pairs;
-  }, [nodes]);
-
-  useFrame((_, delta) => {
-    if (groupRef.current && !reducedMotion) {
-      groupRef.current.rotation.y += delta * 0.06;
-      groupRef.current.rotation.x = Math.sin(Date.now() / 8000) * 0.08;
-    }
+function ScrollCamera({
+  reducedMotion,
+  scrollProgressRef,
+}: {
+  reducedMotion: boolean;
+  scrollProgressRef: React.MutableRefObject<number>;
+}) {
+  const { camera } = useThree();
+  useFrame(() => {
     if (reducedMotion) return;
-    claimClock.current += delta * 1000;
-    if (claimClock.current >= CLAIM_INTERVAL_MS) {
-      claimClock.current = 0;
-      const next = order.current.shift();
-      if (next !== undefined) {
-        order.current.push(next);
-        setClaimedIndex(next);
-      }
-    }
+    // Scroll-linked dolly: the constellation drifts closer as the hero
+    // scrolls past, echoing a scroll-scrubbed camera move rather than a
+    // scene that only ever animates on its own timer. Reads a plain ref
+    // (updated by a passive scroll listener), never React state, so
+    // scrolling never forces a re-render of the scene graph.
+    const targetZ = 8.5 - scrollProgressRef.current * 1.6;
+    camera.position.z += (targetZ - camera.position.z) * 0.08;
   });
-
-  return (
-    <group ref={groupRef}>
-      {edges.map(([a, b], i) => {
-        const isActive = claimedIndex === a || claimedIndex === b;
-        return (
-          <line key={`edge-${i}`}>
-            <bufferGeometry>
-              <bufferAttribute
-                attach="attributes-position"
-                count={2}
-                array={
-                  new Float32Array([
-                    ...nodes[a].position,
-                    ...nodes[b].position,
-                  ])
-                }
-                itemSize={3}
-              />
-            </bufferGeometry>
-            <lineBasicMaterial
-              color={isActive ? "#f5b942" : "#2c5a56"}
-              transparent
-              opacity={isActive ? 0.85 : 0.35}
-            />
-          </line>
-        );
-      })}
-      {nodes.map((n, i) => {
-        const isClaimed = claimedIndex === i;
-        return (
-          <mesh key={`node-${i}`} position={n.position}>
-            <sphereGeometry args={[isClaimed ? 0.11 : 0.07, 16, 16]} />
-            <meshStandardMaterial
-              color={isClaimed ? "#f5b942" : "#4fd1c5"}
-              emissive={isClaimed ? "#f5b942" : "#0d3d38"}
-              emissiveIntensity={isClaimed ? 1.4 : 0.4}
-              toneMapped={false}
-            />
-          </mesh>
-        );
-      })}
-    </group>
-  );
+  return null;
 }
 
 export function MeshScene({ reducedMotion }: { reducedMotion: boolean }) {
   const [dense, setDense] = useState(true);
+  const [tier, setTier] = useState<"low" | "mid" | "high">("high");
+  const scrollProgressRef = useRef(0);
+
+  useEffect(() => {
+    const el = document.getElementById("hero-3d-root");
+    if (!el || reducedMotion) return;
+    let ticking = false;
+    const update = () => {
+      ticking = false;
+      const rect = el.getBoundingClientRect();
+      const viewportH = window.innerHeight || 1;
+      const total = rect.height + viewportH;
+      const traveled = viewportH - rect.top;
+      scrollProgressRef.current = Math.min(1, Math.max(0, traveled / total));
+    };
+    const onScroll = () => {
+      if (!ticking) {
+        ticking = true;
+        requestAnimationFrame(update);
+      }
+    };
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [reducedMotion]);
+
+  const settings = TIER_SETTINGS[tier];
 
   return (
     <Canvas
-      dpr={[1, 1.75]}
+      dpr={settings.dpr}
       frameloop={reducedMotion ? "demand" : "always"}
       camera={{ position: [0, 0, 8.5], fov: 45 }}
+      gl={{ antialias: true, powerPreference: "high-performance" }}
       onCreated={({ gl, size }) => {
         gl.setClearColor("#000000", 0);
         setDense(size.width > 640);
+        setTier(getDeviceTier(size.width));
       }}
       aria-hidden="true"
     >
+      <fog attach="fog" args={["#05070a", 7, 15]} />
       <ambientLight intensity={0.6} />
       <pointLight position={[5, 5, 5]} intensity={40} color="#4fd1c5" />
-      <MeshGraph reducedMotion={reducedMotion} dense={dense} />
+
+      <ScrollCamera reducedMotion={reducedMotion} scrollProgressRef={scrollProgressRef} />
+      <Constellation reducedMotion={reducedMotion} dense={dense} scrollProgressRef={scrollProgressRef} />
+      <AmbientField count={settings.particles} reducedMotion={reducedMotion} />
+      <CameraParallax reducedMotion={reducedMotion} />
+
+      {settings.postFx && (
+        <Suspense fallback={null}>
+          <EffectComposer multisampling={0}>
+            <Bloom
+              intensity={0.85}
+              luminanceThreshold={0.18}
+              luminanceSmoothing={0.35}
+              mipmapBlur
+            />
+            <Noise premultiply opacity={0.035} />
+            <Vignette eskil={false} offset={0.25} darkness={0.9} />
+          </EffectComposer>
+        </Suspense>
+      )}
     </Canvas>
   );
 }

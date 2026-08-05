@@ -30,7 +30,7 @@ const config: Config = {
       },
       fontFamily: {
         sans: ["var(--font-geist-sans)", "system-ui", "sans-serif"],
-        mono: ["var(--font-geist-mono)", "ui-monospace", "monospace"],
+        mono: ["var(--font-dm-mono)", "ui-monospace", "monospace"],
       },
       backgroundImage: {
         grid: "linear-gradient(to right, rgba(232,236,241,0.04) 1px, transparent 1px), linear-gradient(to bottom, rgba(232,236,241,0.04) 1px, transparent 1px)",
