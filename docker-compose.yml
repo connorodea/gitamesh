@@ -19,7 +19,16 @@
 #     Plain `docker compose up` (no profile) still gets the original
 #     single-service, SQLite-backed daemon with zero behavior change.
 #
-# Redis/Neo4j still don't exist here — no adapter needs them yet.
+# Redis is an opt-in, ADDITIONAL layer on top of the "postgres" profile —
+# not a storage backend. It carries no event data; it only gives daemon
+# processes a live "something changed" ping so they don't have to wait for
+# a client reconnect to pick up an event written by a different process
+# (see apps/daemon/src/events-bus.ts and apps/daemon/src/redis-signal.ts).
+# It's meaningless with the default `sqlite` driver (that daemon is
+# single-process anyway), so it's bundled into its own `postgres-redis`
+# profile — `docker compose --profile postgres-redis up` — rather than
+# ever running alongside the plain `daemon` service. Neo4j still doesn't
+# exist here — no adapter needs it yet.
 services:
   daemon:
     build:
@@ -71,7 +80,10 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: gitamesh-postgres
-    profiles: ["postgres"]
+    # Shared by both the "postgres" and "postgres-redis" profiles — Redis
+    # signaling always sits on top of the Postgres-driver daemon, never
+    # standalone, so this service must start for either profile.
+    profiles: ["postgres", "postgres-redis"]
     environment:
       POSTGRES_USER: "gitamesh"
       POSTGRES_PASSWORD: "gitamesh"
@@ -82,6 +94,54 @@ services:
       - gitamesh-postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gitamesh -d gitamesh"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # Opt-in Postgres + Redis daemon: `docker compose --profile postgres-redis up`.
+  # Same daemon image as `daemon-postgres` above, plus GITAMESH_REDIS_URL so
+  # its EventBroadcaster publishes/subscribes cross-process signals. A
+  # separate service (not a flag on `daemon-postgres`) for the same reason
+  # `daemon-postgres` is separate from `daemon`: mutually exclusive
+  # configurations of one logical daemon, kept explicit via Compose
+  # profiles rather than runtime branching in this file. Compose itself
+  # only starts one replica of this service — to see actual cross-process
+  # fan-out, run a second container from the same image by hand (`docker
+  # run ... gitamesh-daemon:local`) pointed at this same postgres+redis
+  # pair; see apps/daemon/README.md's "Redis cross-process signaling"
+  # section for that walkthrough.
+  daemon-postgres-redis:
+    build:
+      context: .
+      dockerfile: apps/daemon/Dockerfile
+    image: gitamesh-daemon:local
+    container_name: gitamesh-daemon-postgres-redis
+    profiles: ["postgres-redis"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8787:8787"
+    environment:
+      GITAMESH_BIND_HOST: "0.0.0.0"
+      GITAMESH_PORT: "8787"
+      GITAMESH_STORAGE_DRIVER: "postgres"
+      GITAMESH_POSTGRES_URL: "postgresql://gitamesh:gitamesh@postgres:5432/gitamesh"
+      GITAMESH_REDIS_URL: "redis://redis:6379"
+      LOG_LEVEL: "info"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: gitamesh-redis
+    profiles: ["postgres-redis"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 10

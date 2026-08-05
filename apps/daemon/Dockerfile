@@ -72,7 +72,12 @@ COPY apps/daemon apps/daemon
 # is only actually connected to when the daemon is started with
 # GITAMESH_STORAGE_DRIVER=postgres (see apps/daemon/src/index.ts, which
 # dynamic-imports @gitamesh/storage-postgres so a plain SQLite deployment
-# never even loads the `pg` module).
+# never even loads the `pg` module). Likewise `ioredis` (a regular
+# dependency of @gitamesh/daemon itself, for the opt-in GITAMESH_REDIS_URL
+# cross-process signaling path — see apps/daemon/src/redis-signal.ts) is
+# pure JS with no native build step, and is only actually resolved/
+# connected to when GITAMESH_REDIS_URL is set (apps/daemon/src/index.ts
+# dynamic-imports ./redis-signal.js).
 RUN pnpm --filter "@gitamesh/daemon..." run build
 
 # Produce a pruned, production-only, standalone copy of the daemon package

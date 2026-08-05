@@ -5,6 +5,7 @@ import {
 } from "@gitamesh/storage-sqlite";
 import { buildServer } from "./server.js";
 import { mintToken, type Scope } from "./auth.js";
+import type { RedisSignal } from "./redis-signal.js";
 
 const LEASE_SWEEP_INTERVAL_MS = 5_000;
 
@@ -50,6 +51,33 @@ async function createStorage(): Promise<StorageAdapter> {
     : createFileSqliteStorage(dbPath);
 }
 
+/**
+ * Optional cross-process live event delivery. Unset (the default) means
+ * zero behavior change and `ioredis` is never resolved — see
+ * `apps/daemon/src/redis-signal.ts` and `apps/daemon/src/events-bus.ts`
+ * for the full design. Meaningful primarily alongside
+ * `GITAMESH_STORAGE_DRIVER=postgres` (several daemon processes sharing
+ * one database); it is harmless but pointless with the default `sqlite`
+ * driver, since SQLite itself isn't multi-daemon-safe either way.
+ */
+async function createRedisSignalIfConfigured(
+  broadcaster: { notifyFromRemoteSignal: () => void; setSignalPublisher: (p: RedisSignal | undefined) => void },
+  logger: { error: (obj: Record<string, unknown>, msg: string) => void },
+): Promise<RedisSignal | undefined> {
+  const url = process.env.GITAMESH_REDIS_URL;
+  if (!url) return undefined;
+
+  const { createRedisSignal } = await import("./redis-signal.js");
+  const signal = createRedisSignal({
+    url,
+    onSignal: () => broadcaster.notifyFromRemoteSignal(),
+    logger,
+  });
+  await signal.ready;
+  broadcaster.setSignalPublisher(signal);
+  return signal;
+}
+
 async function main(): Promise<void> {
   const { bootstrapAdminToken } = parseArgs(process.argv.slice(2));
 
@@ -64,7 +92,15 @@ async function main(): Promise<void> {
   const bindHost = process.env.GITAMESH_BIND_HOST === "0.0.0.0" ? "0.0.0.0" : "127.0.0.1";
   const port = Number(process.env.GITAMESH_PORT ?? 8787);
 
-  const { app, sweepExpiredLeases } = buildServer({ storage });
+  const { app, broadcaster, sweepExpiredLeases } = buildServer({ storage });
+
+  const redisSignal = await createRedisSignalIfConfigured(broadcaster, app.log);
+  if (redisSignal) {
+    // Deliberately does not log the URL itself: it may embed a password
+    // (redis://:password@host:port), same redaction discipline as the
+    // Postgres connection string / bearer tokens elsewhere in this file.
+    app.log.info("redis cross-process signaling enabled");
+  }
 
   if (bootstrapAdminToken) {
     const minted = mintToken(storage, ["admin"] as Scope[]);
@@ -97,6 +133,7 @@ async function main(): Promise<void> {
       host: bindHost,
       port,
       storageDriver,
+      redisSignaling: redisSignal !== undefined,
       ...(storageDriver === "postgres" || storageDriver === "postgresql"
         ? {}
         : { dbPath: process.env.GITAMESH_DB_PATH ?? dbPath }),
@@ -107,6 +144,7 @@ async function main(): Promise<void> {
   const shutdown = async () => {
     clearInterval(sweepTimer);
     await app.close();
+    if (redisSignal) await redisSignal.close();
     storage.close();
     process.exit(0);
   };

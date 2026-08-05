@@ -48,6 +48,7 @@ Environment variables:
 | `GITAMESH_DB_PATH` | `./gitamesh.db` | SQLite file path (only used when the driver is `sqlite`). Set to `:memory:` for an ephemeral in-memory database. |
 | `GITAMESH_POSTGRES_URL` | — | `postgresql://user:pass@host:port/db`. Required when the driver is `postgres`; `DATABASE_URL` is accepted as a fallback name. |
 | `GITAMESH_POSTGRES_SSL` | unset | Set to `true` to connect with `{ rejectUnauthorized: false }` (common for managed Postgres providers with load-balancer-terminated/self-signed certs in front of the DB). Only used when the driver is `postgres`. |
+| `GITAMESH_REDIS_URL` | unset | `redis://[:password@]host:port[/db]`. Opt-in cross-process live event signaling — see "Redis cross-process signaling" below. Unset (the default) means zero behavior change and `ioredis` is never resolved. |
 | `GITAMESH_BIND_HOST` | `127.0.0.1` | Set to `0.0.0.0` to listen on all interfaces. **Secure-by-default**: loopback only unless explicitly opted into. Production TLS/remote exposure is handled by a reverse proxy (Caddy) in front of this daemon, not by the daemon itself. |
 | `GITAMESH_PORT` | `8787` | Listen port. |
 | `LOG_LEVEL` | `info` | Pino log level. |
@@ -73,6 +74,60 @@ import(...)`) so a plain SQLite deployment never has to resolve the `pg`
 module at all. Schema creation is automatic and idempotent on both
 drivers (`CREATE TABLE IF NOT EXISTS ...`) — there is no separate
 "migrate" step to run first.
+
+### Redis cross-process signaling
+
+Running several `postgres`-driver daemon processes behind a load
+balancer, all pointed at one shared database, makes coordination itself
+safe (real Postgres transactions) — but each process's WebSocket
+broadcaster (`apps/daemon/src/events-bus.ts`) previously only knew about
+events appended by mutations that happened to hit *that* process. A
+client connected to process A would not see a live event for a task
+claimed via process B until it reconnected (cursor-based replay-on-
+reconnect always caught it up, so nothing was ever silently lost — it
+just wasn't *live* across processes).
+
+Setting `GITAMESH_REDIS_URL` closes that gap:
+
+```bash
+GITAMESH_STORAGE_DRIVER=postgres \
+GITAMESH_POSTGRES_URL="postgresql://gitamesh:gitamesh@localhost:5432/gitamesh" \
+GITAMESH_REDIS_URL="redis://localhost:6379" \
+pnpm --filter @gitamesh/daemon start
+
+# Or via Docker Compose (brings up Postgres + Redis too):
+docker compose --profile postgres-redis up
+```
+
+What it does and does not do:
+
+- Every time a daemon process's `EventBroadcaster.notifyNew()` runs
+  (i.e. after every mutating route succeeds), it also publishes a
+  **single fixed-byte signal** on a Redis pub/sub channel — never
+  serialized event data. Every other daemon process subscribed to that
+  channel reacts by re-reading storage from each of *its own*
+  locally-connected clients' cursors and pushing anything new, via the
+  exact same `listEventsSince` path the local in-process broadcast
+  already uses.
+- Storage remains the **sole source of truth** at all times. Redis pub/
+  sub has no delivery-durability guarantee (a message published while a
+  subscriber is disconnected is simply dropped), which would be
+  unacceptable for event data but is fine for a signal: a dropped signal
+  only delays a client's live update until its next reconnect-triggered
+  replay — the at-least-once/no-gap guarantee documented under
+  "WebSocket reconnect / cursor semantics" below is completely
+  unaffected by whether Redis is configured, up, or flaky.
+- `ioredis` is imported dynamically (`await import("./redis-signal.js")`,
+  itself importing `ioredis`) only when `GITAMESH_REDIS_URL` is set, so a
+  deployment that never opts in never resolves the module — the same
+  pattern `@gitamesh/storage-postgres` uses for `pg`.
+- Meaningful only alongside `GITAMESH_STORAGE_DRIVER=postgres`. It's
+  harmless but pointless with the default `sqlite` driver, since SQLite
+  itself isn't multi-daemon-safe either way (see "What's NOT
+  implemented" below).
+- Two daemon processes only signal each other if they point at the
+  **same** `GITAMESH_REDIS_URL` — same as needing to point at the same
+  Postgres database to coordinate at all.
 
 ## Minting a bootstrap admin token
 
@@ -205,8 +260,10 @@ section 12, simplified for this milestone:
 2. It then stays open and pushes new events live as they're appended,
    via an in-process broadcaster (`apps/daemon/src/events-bus.ts`) that
    re-reads storage from each client's own cursor after every mutating
-   route succeeds. There is deliberately no external pub/sub (Redis,
-   etc.) — this is a single-process daemon for this milestone.
+   route succeeds. By default this is purely in-process, single-daemon
+   delivery; see "Redis cross-process signaling" above for the opt-in
+   `GITAMESH_REDIS_URL` path that fans this out across multiple daemon
+   processes sharing one Postgres database.
 3. Each delivered event carries a `cursor` field. To reconnect with **no
    gaps**, pass the `cursor` of the last event you fully processed as
    the new `?since=`.
@@ -237,19 +294,20 @@ section 12, simplified for this milestone:
 
 ## What's NOT implemented (be honest about the gaps)
 
-- **Redis / external signaling** — the WebSocket broadcaster is
-  in-process only. Running two `sqlite`-driver daemon processes against
-  the same SQLite file would NOT fan out events between them (SQLite
-  itself isn't multi-daemon-safe either — see
-  `packages/storage-sqlite/src/schema.ts`). Running multiple
-  `postgres`-driver daemon processes against the same database IS safe
-  for coordination (real Postgres transactions), but each process's own
-  WebSocket broadcaster still only sees events appended by writes that
-  go through *that* process — there is still no cross-process event
-  fan-out. A client connected to daemon A will not see a live event for
-  a task claimed via daemon B until it reconnects (its cursor-based
-  replay-on-reconnect will pick it up, so nothing is silently lost —
-  delivery is just not live across daemons yet).
+- **Redis / external signaling is now opt-in, not built-in.** The
+  WebSocket broadcaster is in-process by default. Running two
+  `sqlite`-driver daemon processes against the same SQLite file still
+  would NOT fan out events between them (SQLite itself isn't
+  multi-daemon-safe either — see `packages/storage-sqlite/src/schema.ts`
+  — so this isn't a case Redis signaling is meant to address). Running
+  multiple `postgres`-driver daemon processes against the same database
+  IS safe for coordination (real Postgres transactions); with
+  `GITAMESH_REDIS_URL` also set, their WebSocket broadcasters now fan
+  live events out to each other too (see "Redis cross-process signaling"
+  above). Without it, a client connected to daemon A still only sees a
+  live event for a mutation on daemon B on its next reconnect — nothing
+  is silently lost either way, delivery is just not live across daemons
+  until Redis signaling is configured.
 - **`storage-postgres` concurrency model** — every call into
   `PostgresStorageAdapter` is synchronous from the daemon's point of
   view (matching `StorageAdapter`'s contract) via a `synckit`-bridged
