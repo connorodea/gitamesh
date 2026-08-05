@@ -1,5 +1,5 @@
 import type { FastifyRequest } from "fastify";
-import type { SqliteStorageAdapter } from "@gitamesh/storage-sqlite";
+import type { StorageAdapter } from "@gitamesh/core";
 
 /**
  * Idempotency-key convention for this daemon: every mutating route reads
@@ -22,7 +22,7 @@ export function getIdempotencyKey(request: FastifyRequest): string | undefined {
 }
 
 export function withIdempotency<T>(
-  storage: SqliteStorageAdapter,
+  storage: StorageAdapter,
   scope: string,
   key: string | undefined,
   fn: () => T,

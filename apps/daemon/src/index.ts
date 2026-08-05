@@ -1,3 +1,4 @@
+import type { StorageAdapter } from "@gitamesh/core";
 import {
   createFileSqliteStorage,
   createInMemorySqliteStorage,
@@ -11,14 +12,50 @@ function parseArgs(argv: string[]): { bootstrapAdminToken: boolean } {
   return { bootstrapAdminToken: argv.includes("--bootstrap-admin-token") };
 }
 
+/**
+ * Selects the storage backend at startup. Default is `sqlite` — zero
+ * behavior change for existing single-process deployments. Set
+ * `GITAMESH_STORAGE_DRIVER=postgres` (+ `GITAMESH_POSTGRES_URL` or
+ * `DATABASE_URL`) for multi-process/multi-daemon production deployments.
+ * `@gitamesh/storage-postgres` is imported dynamically so daemon
+ * deployments that never opt into Postgres don't need `pg` resolvable at
+ * all (see this function's Dockerfile / package.json notes).
+ */
+async function createStorage(): Promise<StorageAdapter> {
+  const driver = (process.env.GITAMESH_STORAGE_DRIVER ?? "sqlite").toLowerCase();
+
+  if (driver === "postgres" || driver === "postgresql") {
+    const connectionString =
+      process.env.GITAMESH_POSTGRES_URL ?? process.env.DATABASE_URL;
+    if (!connectionString) {
+      throw new Error(
+        "GITAMESH_STORAGE_DRIVER=postgres requires GITAMESH_POSTGRES_URL (or DATABASE_URL) to be set.",
+      );
+    }
+    const { createPostgresStorage } = await import("@gitamesh/storage-postgres");
+    const ssl =
+      process.env.GITAMESH_POSTGRES_SSL === "true" ? { rejectUnauthorized: false } : undefined;
+    return createPostgresStorage(connectionString, { ssl });
+  }
+
+  if (driver !== "sqlite") {
+    throw new Error(
+      `Unknown GITAMESH_STORAGE_DRIVER "${driver}". Supported: "sqlite" (default), "postgres".`,
+    );
+  }
+
+  const dbPath = process.env.GITAMESH_DB_PATH ?? "./gitamesh.db";
+  return process.env.GITAMESH_DB_PATH === ":memory:"
+    ? createInMemorySqliteStorage()
+    : createFileSqliteStorage(dbPath);
+}
+
 async function main(): Promise<void> {
   const { bootstrapAdminToken } = parseArgs(process.argv.slice(2));
 
+  const storageDriver = (process.env.GITAMESH_STORAGE_DRIVER ?? "sqlite").toLowerCase();
   const dbPath = process.env.GITAMESH_DB_PATH ?? "./gitamesh.db";
-  const storage =
-    process.env.GITAMESH_DB_PATH === ":memory:"
-      ? createInMemorySqliteStorage()
-      : createFileSqliteStorage(dbPath);
+  const storage = await createStorage();
 
   // Secure-by-default bind: loopback only unless explicitly opted out.
   // This matches the spec's "secure defaults for remote listening"
@@ -56,7 +93,14 @@ async function main(): Promise<void> {
 
   await app.listen({ host: bindHost, port });
   app.log.info(
-    { host: bindHost, port, dbPath: process.env.GITAMESH_DB_PATH ?? dbPath },
+    {
+      host: bindHost,
+      port,
+      storageDriver,
+      ...(storageDriver === "postgres" || storageDriver === "postgresql"
+        ? {}
+        : { dbPath: process.env.GITAMESH_DB_PATH ?? dbPath }),
+    },
     "gitamesh daemon listening",
   );
 

@@ -1,11 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import type { SqliteStorageAdapter, EventWithCursor } from "@gitamesh/storage-sqlite";
+import type { StorageAdapter, EventWithCursor } from "@gitamesh/core";
 import { requireScope } from "../auth.js";
 import type { EventBroadcaster } from "../events-bus.js";
 
 export function registerEventRoutes(
   app: FastifyInstance,
-  storage: SqliteStorageAdapter,
+  storage: StorageAdapter,
   broadcaster: EventBroadcaster,
 ): void {
   app.get(

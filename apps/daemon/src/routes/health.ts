@@ -1,12 +1,12 @@
 import type { FastifyInstance } from "fastify";
-import type { SqliteStorageAdapter } from "@gitamesh/storage-sqlite";
+import type { StorageAdapter } from "@gitamesh/core";
 import type { Metrics } from "../metrics.js";
 import { renderPrometheus } from "../metrics.js";
 import { requireScope } from "../auth.js";
 
 export function registerHealthRoutes(
   app: FastifyInstance,
-  storage: SqliteStorageAdapter,
+  storage: StorageAdapter,
   metrics: Metrics,
 ): void {
   // No auth required — used by load balancers / orchestrators.

@@ -1,12 +1,12 @@
 import type { FastifyInstance } from "fastify";
-import type { SqliteStorageAdapter } from "@gitamesh/storage-sqlite";
+import type { StorageAdapter } from "@gitamesh/core";
 import { requireScope } from "../auth.js";
 import type { EventBroadcaster } from "../events-bus.js";
 import type { RateLimiter } from "../rate-limit.js";
 
 export function registerClaimRoutes(
   app: FastifyInstance,
-  storage: SqliteStorageAdapter,
+  storage: StorageAdapter,
   broadcaster: EventBroadcaster,
   rateLimiter: RateLimiter,
 ): void {

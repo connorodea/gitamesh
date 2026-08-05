@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import websocketPlugin from "@fastify/websocket";
 import { CoordinationEngine } from "@gitamesh/core";
-import type { SqliteStorageAdapter } from "@gitamesh/storage-sqlite";
+import type { StorageAdapter } from "@gitamesh/core";
 import { Metrics } from "./metrics.js";
 import { EventBroadcaster } from "./events-bus.js";
 import { RateLimiter } from "./rate-limit.js";
@@ -12,7 +12,7 @@ import { registerClaimRoutes } from "./routes/claims.js";
 import { registerEventRoutes } from "./routes/events.js";
 
 export interface BuildServerOptions {
-  storage: SqliteStorageAdapter;
+  storage: StorageAdapter;
   logger?: boolean | Record<string, unknown>;
   /** Rolling-window mutating-request cap per token; default 60/min (see rate-limit.ts). */
   rateLimitPerMinute?: number;

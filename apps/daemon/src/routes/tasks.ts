@@ -8,7 +8,7 @@ import {
   taskNotFound as taskNotFoundError,
   invalidStateTransition,
 } from "@gitamesh/core";
-import type { SqliteStorageAdapter } from "@gitamesh/storage-sqlite";
+import type { StorageAdapter } from "@gitamesh/core";
 import { requireScope } from "../auth.js";
 import { sendError } from "../problem.js";
 import { getIdempotencyKey, withIdempotency } from "../idempotency.js";
@@ -80,7 +80,7 @@ function isClaimConflict(err: unknown): boolean {
 
 export function registerTaskRoutes(
   app: FastifyInstance,
-  storage: SqliteStorageAdapter,
+  storage: StorageAdapter,
   engine: CoordinationEngine,
   broadcaster: EventBroadcaster,
   metrics: Metrics,

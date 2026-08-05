@@ -1,4 +1,4 @@
-import type { SqliteStorageAdapter, EventWithCursor } from "@gitamesh/storage-sqlite";
+import type { StorageAdapter, EventWithCursor } from "@gitamesh/core";
 import type { Metrics } from "./metrics.js";
 
 /**
@@ -32,7 +32,7 @@ export class EventBroadcaster {
   private readonly clients = new Set<StreamClient>();
 
   constructor(
-    private readonly storage: SqliteStorageAdapter,
+    private readonly storage: StorageAdapter,
     private readonly metrics: Metrics,
   ) {}
 

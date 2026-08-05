@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import type { Agent } from "@gitamesh/protocol";
 import { canTransitionAgent } from "@gitamesh/core";
-import type { SqliteStorageAdapter } from "@gitamesh/storage-sqlite";
+import type { StorageAdapter } from "@gitamesh/core";
 import { requireScope } from "../auth.js";
 import { sendError } from "../problem.js";
 import { getIdempotencyKey, withIdempotency } from "../idempotency.js";
@@ -20,7 +20,7 @@ const RegisterAgentBody = z.object({
 
 export function registerAgentRoutes(
   app: FastifyInstance,
-  storage: SqliteStorageAdapter,
+  storage: StorageAdapter,
   broadcaster: EventBroadcaster,
   rateLimiter: RateLimiter,
 ): void {

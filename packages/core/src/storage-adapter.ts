@@ -4,15 +4,45 @@ import type {
   ResourceClaim,
   Lease,
   EventEnvelope,
+  Agent,
 } from "@gitamesh/protocol";
+
+/**
+ * A stored bearer token record. Daemon-only concern — auth/token
+ * management is a daemon-layer responsibility, not a coordination
+ * invariant, but it is part of the shared `StorageAdapter` contract so
+ * that every implementation (SQLite, Postgres, ...) can back
+ * `apps/daemon` interchangeably. `token_hash` is a SHA-256 hex digest of
+ * the raw token; the raw value is never persisted.
+ */
+export interface StoredToken {
+  token_id: string;
+  token_hash: string;
+  scopes: string[];
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface EventWithCursor extends EventEnvelope {
+  /**
+   * Monotonic, globally-ordered insertion cursor. Opaque — treat as an
+   * opaque string/number token to pass back as `since`, never as a
+   * semantic value (e.g. do not assume gaps mean anything).
+   */
+  cursor: number;
+}
 
 /**
  * Storage-agnostic persistence contract. `packages/core`'s
  * `CoordinationEngine` is written entirely against this interface and
- * never imports a concrete storage implementation. `packages/storage-sqlite`
- * provides the first implementation (SQLite/better-sqlite3); a future
- * Postgres adapter implements the same interface for multi-process/
- * multi-daemon production deployments.
+ * never imports a concrete storage implementation. `apps/daemon` is also
+ * written entirely against this interface (not any concrete adapter
+ * class), so any implementation can be selected at daemon startup via
+ * `GITAMESH_STORAGE_DRIVER`. `packages/storage-sqlite` provides the
+ * embedded/single-process implementation (SQLite/better-sqlite3);
+ * `packages/storage-postgres` provides the multi-process/multi-daemon
+ * production implementation (node-postgres).
  *
  * Every method that performs a "check-then-write" (claim, heartbeat,
  * complete, fail, expire) MUST be called from within a single
@@ -71,6 +101,46 @@ export interface StorageAdapter {
       event_id?: string;
     },
   ): EventEnvelope;
+  /** All events for a repository, in repository_sequence order. */
+  listEventsForRepository(repositoryId: string): EventEnvelope[];
+  /** Every event ever appended, in global insertion order. */
+  listAllEvents(): EventEnvelope[];
+  /**
+   * Daemon-facing cursor read: events with cursor > `cursor` (0 = from the
+   * beginning), in global insertion order, optionally filtered to one
+   * repository, capped at `limit` (adapter-defined default). Backs
+   * `GET /v1/events` and the replay phase of `GET /v1/events/stream`.
+   */
+  listEventsSince(
+    cursor: number,
+    opts?: { repositoryId?: string; limit?: number },
+  ): { events: EventWithCursor[]; nextCursor: number };
+  /** Current maximum event cursor, or 0 if no events exist yet. */
+  latestEventCursor(): number;
+
+  // --- Agents (daemon-facing) ---------------------------------------------
+  getAgent(agentId: string): Agent | undefined;
+  saveAgent(agent: Agent): void;
+  listAgents(): Agent[];
+
+  // --- Tasks: daemon-facing listing (core only needs get/save) ---------------
+  listTasks(filter?: { repositoryId?: string; status?: string }): Task[];
+  countTasksByStatus(): Record<string, number>;
+
+  // --- Resource claims: daemon-facing listing/manual release ------------------
+  listActiveResourceClaims(repositoryId?: string): ResourceClaim[];
+  getResourceClaim(claimId: string): ResourceClaim | undefined;
+  /** Manually releases a single claim. Returns false if it did not exist or was already released. */
+  releaseResourceClaim(claimId: string): boolean;
+
+  // --- Tokens (daemon-only auth) ----------------------------------------
+  saveToken(token: StoredToken): void;
+  getTokenByHash(tokenHash: string): StoredToken | undefined;
+  listTokens(): StoredToken[];
+  revokeToken(tokenId: string, revokedAtIso: string): boolean;
+
+  /** Cheap reachability check, e.g. for `GET /readyz`. */
+  ping(): boolean;
 
   // --- Idempotency ------------------------------------------------------
   lookupIdempotentResult<T>(key: string): T | undefined;
@@ -80,4 +150,6 @@ export interface StorageAdapter {
   generateId(prefix: string): string;
   /** Current time as an ISO-8601 datetime string. Injectable for deterministic tests. */
   now(): string;
+  /** Releases underlying connection(s)/resources. Idempotent. */
+  close(): void;
 }

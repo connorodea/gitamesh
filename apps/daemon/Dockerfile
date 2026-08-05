@@ -43,6 +43,7 @@ COPY apps/daemon/package.json apps/daemon/package.json
 COPY packages/protocol/package.json packages/protocol/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/storage-sqlite/package.json packages/storage-sqlite/package.json
+COPY packages/storage-postgres/package.json packages/storage-postgres/package.json
 COPY packages/git-adapter/package.json packages/git-adapter/package.json
 COPY packages/cli/package.json packages/cli/package.json
 COPY packages/mcp-server/package.json packages/mcp-server/package.json
@@ -60,11 +61,18 @@ RUN pnpm install --frozen-lockfile
 COPY packages/protocol packages/protocol
 COPY packages/core packages/core
 COPY packages/storage-sqlite packages/storage-sqlite
+COPY packages/storage-postgres packages/storage-postgres
 COPY apps/daemon apps/daemon
 
 # Build only @gitamesh/daemon and its workspace dependency closure
-# (protocol -> core -> storage-sqlite -> daemon). This also transitively
-# compiles better-sqlite3's native binding as part of the install step above.
+# (protocol -> core -> {storage-sqlite, storage-postgres} -> daemon). This
+# also transitively compiles better-sqlite3's native binding as part of the
+# install step above. storage-postgres's own dependency (`pg`) is pure JS —
+# no native compile step, so it adds no extra build requirements here; `pg`
+# is only actually connected to when the daemon is started with
+# GITAMESH_STORAGE_DRIVER=postgres (see apps/daemon/src/index.ts, which
+# dynamic-imports @gitamesh/storage-postgres so a plain SQLite deployment
+# never even loads the `pg` module).
 RUN pnpm --filter "@gitamesh/daemon..." run build
 
 # Produce a pruned, production-only, standalone copy of the daemon package
@@ -107,6 +115,12 @@ ENV NODE_ENV=production
 # the container is what makes port publishing (`-p 8787:8787`) work at all.
 ENV GITAMESH_BIND_HOST=0.0.0.0
 ENV GITAMESH_PORT=8787
+# Default storage driver is SQLite (zero behavior change for existing
+# deployments of this image). Override at `docker run`/Compose time with
+# GITAMESH_STORAGE_DRIVER=postgres + GITAMESH_POSTGRES_URL — see
+# docker-compose.yml's `daemon-postgres` service and
+# apps/daemon/README.md's "Storage drivers" section.
+ENV GITAMESH_STORAGE_DRIVER=sqlite
 ENV GITAMESH_DB_PATH=/data/gitamesh.db
 ENV LOG_LEVEL=info
 

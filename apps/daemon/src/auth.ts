@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { GitameshError } from "@gitamesh/protocol";
-import type { SqliteStorageAdapter, StoredToken } from "@gitamesh/storage-sqlite";
+import type { StorageAdapter, StoredToken } from "@gitamesh/core";
 import type { RateLimiter } from "./rate-limit.js";
 
 /**
@@ -79,7 +79,7 @@ export interface MintedToken {
  * immediately.
  */
 export function mintToken(
-  storage: SqliteStorageAdapter,
+  storage: StorageAdapter,
   scopes: Scope[],
   opts?: { expiresAt?: string | null },
 ): MintedToken {
@@ -99,7 +99,7 @@ export function mintToken(
 }
 
 export function verifyToken(
-  storage: SqliteStorageAdapter,
+  storage: StorageAdapter,
   rawToken: string,
 ): StoredToken | undefined {
   const record = storage.getTokenByHash(hashToken(rawToken));
@@ -139,7 +139,7 @@ declare module "fastify" {
  * the request for downstream structured logging.
  */
 export function requireScope(
-  storage: SqliteStorageAdapter,
+  storage: StorageAdapter,
   requiredScope: Scope,
   options?: { rateLimiter?: RateLimiter },
 ) {

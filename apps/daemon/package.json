@@ -25,6 +25,7 @@
     "@fastify/websocket": "^11.0.2",
     "@gitamesh/core": "workspace:*",
     "@gitamesh/protocol": "workspace:*",
+    "@gitamesh/storage-postgres": "workspace:*",
     "@gitamesh/storage-sqlite": "workspace:*",
     "fastify": "^5.2.1",
     "zod": "^3.24.1"

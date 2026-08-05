@@ -1,15 +1,25 @@
 # @gitamesh/daemon
 
 The Gitamesh coordination daemon: a Fastify HTTP/WebSocket API in front
-of `@gitamesh/core`'s `CoordinationEngine`, backed by the embedded
-`@gitamesh/storage-sqlite` adapter (`better-sqlite3`, WAL mode).
+of `@gitamesh/core`'s `CoordinationEngine`, backed by a pluggable
+`StorageAdapter` (`packages/core/src/storage-adapter.ts`). Every file in
+this daemon is written against that interface, never a concrete adapter
+class — see "Storage drivers" below.
 
-This is a **single-process, embedded-SQLite** daemon for this milestone
-— see `docs/adr/0001-protocol-first-storage-agnostic-core.md` and
-`packages/storage-sqlite/src/schema.ts` for why. Multi-process
-production deployment is expected to land with a future Postgres
-storage adapter implementing the same `StorageAdapter` interface; this
-daemon's route/auth/observability layer would not need to change.
+Two implementations exist today:
+
+- **`@gitamesh/storage-sqlite`** (`better-sqlite3`, WAL mode) — the
+  **default**. Single-process, single-connection-safe (see
+  `packages/storage-sqlite/src/schema.ts`); zero setup, one file on disk.
+- **`@gitamesh/storage-postgres`** (`pg`/node-postgres) — for
+  multi-process/multi-daemon production deployments, where several
+  daemon processes need to coordinate through one shared database. See
+  `packages/storage-postgres/README.md` for how it stays synchronous
+  (matching `StorageAdapter`'s sync contract) despite `pg` being async.
+
+The route/auth/observability layer is identical regardless of which
+driver is selected — only `apps/daemon/src/index.ts`'s `createStorage()`
+branches on `GITAMESH_STORAGE_DRIVER`.
 
 ## Running in Docker
 
@@ -34,10 +44,35 @@ Environment variables:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `GITAMESH_DB_PATH` | `./gitamesh.db` | SQLite file path. Set to `:memory:` for an ephemeral in-memory database. |
+| `GITAMESH_STORAGE_DRIVER` | `sqlite` | `sqlite` or `postgres`. See "Storage drivers" below. |
+| `GITAMESH_DB_PATH` | `./gitamesh.db` | SQLite file path (only used when the driver is `sqlite`). Set to `:memory:` for an ephemeral in-memory database. |
+| `GITAMESH_POSTGRES_URL` | — | `postgresql://user:pass@host:port/db`. Required when the driver is `postgres`; `DATABASE_URL` is accepted as a fallback name. |
+| `GITAMESH_POSTGRES_SSL` | unset | Set to `true` to connect with `{ rejectUnauthorized: false }` (common for managed Postgres providers with load-balancer-terminated/self-signed certs in front of the DB). Only used when the driver is `postgres`. |
 | `GITAMESH_BIND_HOST` | `127.0.0.1` | Set to `0.0.0.0` to listen on all interfaces. **Secure-by-default**: loopback only unless explicitly opted into. Production TLS/remote exposure is handled by a reverse proxy (Caddy) in front of this daemon, not by the daemon itself. |
 | `GITAMESH_PORT` | `8787` | Listen port. |
 | `LOG_LEVEL` | `info` | Pino log level. |
+
+### Storage drivers
+
+```bash
+# Default — unchanged from before this feature existed:
+pnpm --filter @gitamesh/daemon start
+
+# Postgres-backed, for multi-process/multi-daemon deployments:
+GITAMESH_STORAGE_DRIVER=postgres \
+GITAMESH_POSTGRES_URL="postgresql://gitamesh:gitamesh@localhost:5432/gitamesh" \
+pnpm --filter @gitamesh/daemon start
+
+# Or via Docker Compose (brings up Postgres too):
+docker compose --profile postgres up
+```
+
+`apps/daemon/src/index.ts`'s `createStorage()` selects the driver once at
+startup. `@gitamesh/storage-postgres` is imported dynamically (`await
+import(...)`) so a plain SQLite deployment never has to resolve the `pg`
+module at all. Schema creation is automatic and idempotent on both
+drivers (`CREATE TABLE IF NOT EXISTS ...`) — there is no separate
+"migrate" step to run first.
 
 ## Minting a bootstrap admin token
 
@@ -102,23 +137,25 @@ and an RFC 9457 body. Read-only (`GET`) routes are not rate-limited.
 
 ### What's implemented directly in the daemon vs. in `CoordinationEngine`
 
-`CoordinationEngine` (packages/core) only owns `claimTask`,
+`CoordinationEngine` (packages/core) only *calls* `claimTask`,
 `heartbeatAttempt`, `completeAttempt`, `failAttempt`, and
-`expireStaleLeases` — the concurrency-control invariants. Everything
-else this daemon exposes (agent registration/listing/heartbeat, task
-creation/listing, task cancellation, manual claim release, event
-listing/streaming, auth/tokens) is daemon-layer CRUD/observability with
-no coordination-invariant content, so it's implemented directly against
-the concrete `SqliteStorageAdapter` (extra methods added in
-`packages/storage-sqlite/src/adapter.ts`: `saveAgent`/`getAgent`/
-`listAgents`, `listTasks`/`countTasksByStatus`,
+`expireStaleLeases` internally — the concurrency-control invariants.
+Everything else this daemon exposes (agent registration/listing/
+heartbeat, task creation/listing, task cancellation, manual claim
+release, event listing/streaming, auth/tokens) is daemon-layer
+CRUD/observability with no coordination-invariant content. It's
+implemented against extra methods on the shared `StorageAdapter`
+interface itself (`packages/core/src/storage-adapter.ts`: `saveAgent`/
+`getAgent`/`listAgents`, `listTasks`/`countTasksByStatus`,
 `listActiveResourceClaims`/`releaseResourceClaim`, `listEventsSince`/
 `listAllEvents`/`latestEventCursor`, `saveToken`/`getTokenByHash`/
-`listTokens`/`revokeToken`, `ping`) rather than added to the
-storage-agnostic `StorageAdapter` interface in `packages/core`. This
-keeps ADR-0001's "core stays storage-agnostic" invariant intact — a
-future Postgres adapter only has to reimplement the interface
-`CoordinationEngine` actually depends on, not daemon-only CRUD.
+`listTokens`/`revokeToken`, `ping`) rather than a concrete class — every
+route file types `storage` as `StorageAdapter`, never
+`SqliteStorageAdapter`/`PostgresStorageAdapter` directly, so either
+driver can back this daemon interchangeably. This still keeps
+ADR-0001's "core stays storage-agnostic" invariant intact: none of these
+daemon-only methods are called by `CoordinationEngine`, they're just
+part of the same interface contract both storage packages implement.
 
 `POST /v1/tasks/:taskId/cancel` is the one route that mutates
 coordination state (task/attempt/claim/lease) without an
@@ -136,9 +173,10 @@ Opaque bearer tokens (`Authorization: Bearer <token>`), matching spec
 section 12, simplified for this milestone:
 
 - Tokens are minted via `mintToken()` (`apps/daemon/src/auth.ts`) or the
-  bootstrap flows above. Only a SHA-256 hash is stored
-  (`packages/storage-sqlite`'s `tokens` table); the raw value is shown
-  once.
+  bootstrap flows above. Only a SHA-256 hash is stored (the `tokens`
+  table — see `packages/storage-sqlite/src/schema.ts` or
+  `packages/storage-postgres/src/schema.ts` depending on the active
+  driver); the raw value is shown once.
 - Scopes: `repository:read`, `repository:write` (reserved, unused by any
   route yet — no `/v1/repositories` routes exist), `agent:register`,
   `agent:heartbeat`, `task:read`, `task:create`, `task:claim`,
@@ -161,8 +199,9 @@ section 12, simplified for this milestone:
 `GET /v1/events/stream?since=<cursor>&repositoryId=<optional>`:
 
 1. On connect, the server **replays** every event after `since` from
-   durable storage (`SqliteStorageAdapter.listEventsSince`, an indexed
-   `rowid > ?` scan), in insertion order.
+   durable storage (`StorageAdapter.listEventsSince` — an indexed
+   `rowid > ?` scan on SQLite, `cursor > $1` on Postgres), in insertion
+   order.
 2. It then stays open and pushes new events live as they're appended,
    via an in-process broadcaster (`apps/daemon/src/events-bus.ts`) that
    re-reads storage from each client's own cursor after every mutating
@@ -198,13 +237,27 @@ section 12, simplified for this milestone:
 
 ## What's NOT implemented (be honest about the gaps)
 
-- **Postgres adapter** — this daemon only runs against
-  `packages/storage-sqlite`, which is explicitly single-process/
-  single-connection-safe, not multi-daemon-safe (see
-  `packages/storage-sqlite/src/schema.ts`).
 - **Redis / external signaling** — the WebSocket broadcaster is
-  in-process only; running two daemon processes against the same
-  SQLite file would NOT fan out events between them.
+  in-process only. Running two `sqlite`-driver daemon processes against
+  the same SQLite file would NOT fan out events between them (SQLite
+  itself isn't multi-daemon-safe either — see
+  `packages/storage-sqlite/src/schema.ts`). Running multiple
+  `postgres`-driver daemon processes against the same database IS safe
+  for coordination (real Postgres transactions), but each process's own
+  WebSocket broadcaster still only sees events appended by writes that
+  go through *that* process — there is still no cross-process event
+  fan-out. A client connected to daemon A will not see a live event for
+  a task claimed via daemon B until it reconnects (its cursor-based
+  replay-on-reconnect will pick it up, so nothing is silently lost —
+  delivery is just not live across daemons yet).
+- **`storage-postgres` concurrency model** — every call into
+  `PostgresStorageAdapter` is synchronous from the daemon's point of
+  view (matching `StorageAdapter`'s contract) via a `synckit`-bridged
+  worker thread holding one persistent connection; see
+  `packages/storage-postgres/README.md` for the full rationale and its
+  cost (each call blocks the daemon process's event loop for the
+  round-trip, same as `better-sqlite3` already does today). Real
+  concurrency across daemon processes still comes from Postgres itself.
 - **`/v1/repositories`** — no repository-registration route exists yet
   (the CLI's `registerRepository` client method is written against the
   documented shape but will 404 against this daemon; see

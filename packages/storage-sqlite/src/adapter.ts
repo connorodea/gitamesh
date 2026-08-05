@@ -7,27 +7,14 @@ import type {
   EventEnvelope,
   Agent,
 } from "@gitamesh/protocol";
-import type { StorageAdapter } from "@gitamesh/core";
+import type { StorageAdapter, StoredToken, EventWithCursor } from "@gitamesh/core";
 import { SCHEMA_SQL } from "./schema.js";
 
-/**
- * A stored bearer token record. Daemon-only concern — see the comment
- * above the `tokens` table in `./schema.ts`. `token_hash` is a SHA-256 hex
- * digest of the raw token; the raw value is never persisted.
- */
-export interface StoredToken {
-  token_id: string;
-  token_hash: string;
-  scopes: string[];
-  created_at: string;
-  expires_at: string | null;
-  revoked_at: string | null;
-}
-
-export interface EventWithCursor extends EventEnvelope {
-  /** Monotonic, globally-ordered insertion cursor (SQLite rowid). Opaque — treat as an opaque string/number token, not a semantic value. */
-  cursor: number;
-}
+// `StoredToken` and `EventWithCursor` now live on the shared
+// `StorageAdapter` contract in `@gitamesh/core` (so `storage-postgres` can
+// implement the exact same shapes); re-exported here for backward
+// compatibility with existing imports from `@gitamesh/storage-sqlite`.
+export type { StoredToken, EventWithCursor } from "@gitamesh/core";
 
 type TaskRow = {
   task_id: string;

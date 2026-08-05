@@ -1,15 +1,25 @@
 # Local dev / single-node deployment for the Gitamesh coordination daemon.
 #
-# This compose file has exactly one service on purpose: the only thing this
-# repo currently ships that needs a container is @gitamesh/daemon, and its
-# only persistence dependency is the embedded SQLite file
-# (packages/storage-sqlite — see that package's docs for why it's
-# single-process/single-connection, not a shared server). There is no
-# Postgres, Redis, or Neo4j here because no storage adapter for them exists
-# in this codebase yet (see apps/daemon/README.md's "What's NOT implemented"
-# section). When a Postgres-backed StorageAdapter lands, this file should
-# grow a `postgres` service + a `DATABASE_URL`-style env var for the daemon;
-# until then, one service + one named volume is the whole story.
+# Storage is selectable at daemon startup via GITAMESH_STORAGE_DRIVER (see
+# apps/daemon/README.md's "Storage drivers" section and
+# packages/core/src/storage-adapter.ts):
+#
+#   - "sqlite" (default, and this file's default `daemon` service):
+#     the embedded SQLite file (packages/storage-sqlite — single-process/
+#     single-connection, see that package's docs). No extra service needed.
+#   - "postgres": packages/storage-postgres, for multi-process/multi-daemon
+#     deployments. This file's `postgres` service is opt-in — it only
+#     starts when you request the `postgres` Compose profile:
+#
+#       docker compose --profile postgres up
+#
+#     which also brings up the `daemon` service pointed at it (both are
+#     tagged with the `postgres` profile so `--profile postgres up` starts
+#     exactly the daemon+postgres pair, not the default sqlite daemon too).
+#     Plain `docker compose up` (no profile) still gets the original
+#     single-service, SQLite-backed daemon with zero behavior change.
+#
+# Redis/Neo4j still don't exist here — no adapter needs them yet.
 services:
   daemon:
     build:
@@ -26,11 +36,57 @@ services:
       # bare-metal-vs-container bind-host rationale.
       GITAMESH_BIND_HOST: "0.0.0.0"
       GITAMESH_PORT: "8787"
+      GITAMESH_STORAGE_DRIVER: "sqlite"
       GITAMESH_DB_PATH: "/data/gitamesh.db"
       LOG_LEVEL: "info"
     volumes:
       - gitamesh-data:/data
     restart: unless-stopped
 
+  # Opt-in Postgres-backed daemon: `docker compose --profile postgres up`.
+  # A separate service (not a flag on `daemon` above) because the two are
+  # mutually exclusive storage backends for the same logical daemon, and
+  # Compose profiles are the cleanest way to express "one of these, not
+  # both" without runtime branching in this file.
+  daemon-postgres:
+    build:
+      context: .
+      dockerfile: apps/daemon/Dockerfile
+    image: gitamesh-daemon:local
+    container_name: gitamesh-daemon-postgres
+    profiles: ["postgres"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8787:8787"
+    environment:
+      GITAMESH_BIND_HOST: "0.0.0.0"
+      GITAMESH_PORT: "8787"
+      GITAMESH_STORAGE_DRIVER: "postgres"
+      GITAMESH_POSTGRES_URL: "postgresql://gitamesh:gitamesh@postgres:5432/gitamesh"
+      LOG_LEVEL: "info"
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: gitamesh-postgres
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: "gitamesh"
+      POSTGRES_PASSWORD: "gitamesh"
+      POSTGRES_DB: "gitamesh"
+    ports:
+      - "5432:5432"
+    volumes:
+      - gitamesh-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gitamesh -d gitamesh"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
 volumes:
   gitamesh-data:
+  gitamesh-postgres-data:

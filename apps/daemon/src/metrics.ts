@@ -1,4 +1,4 @@
-import type { SqliteStorageAdapter } from "@gitamesh/storage-sqlite";
+import type { StorageAdapter } from "@gitamesh/core";
 
 /**
  * In-process counters for the things that are cheap to increment at the
@@ -38,7 +38,7 @@ function escapeLabel(value: string): string {
 }
 
 /** Renders Prometheus text exposition format. Hand-rolled — no metrics library needed for this small a surface. */
-export function renderPrometheus(storage: SqliteStorageAdapter, metrics: Metrics): string {
+export function renderPrometheus(storage: StorageAdapter, metrics: Metrics): string {
   const lines: string[] = [];
 
   lines.push("# HELP gitamesh_tasks_total Number of tasks currently in each state.");

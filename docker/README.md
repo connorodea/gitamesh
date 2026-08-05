@@ -75,12 +75,34 @@ docker compose up -d
 |---|---|---|
 | `GITAMESH_BIND_HOST` | `0.0.0.0` | See "Bind-host default" below. |
 | `GITAMESH_PORT` | `8787` | Listen port. Matches `EXPOSE 8787` / the healthcheck. |
-| `GITAMESH_DB_PATH` | `/data/gitamesh.db` | SQLite file path. Point this at a mounted volume (below) for persistence, or `:memory:` for an ephemeral container. |
+| `GITAMESH_STORAGE_DRIVER` | `sqlite` | `sqlite` or `postgres` — see "Postgres storage driver" below. |
+| `GITAMESH_DB_PATH` | `/data/gitamesh.db` | SQLite file path (driver `sqlite` only). Point this at a mounted volume (below) for persistence, or `:memory:` for an ephemeral container. |
+| `GITAMESH_POSTGRES_URL` | — | `postgresql://user:pass@host:port/db` (driver `postgres` only). |
 | `LOG_LEVEL` | `info` | Pino log level. |
 
 These are the same variables `apps/daemon/README.md` documents for
 bare-metal — only the **defaults** differ between the two contexts (see
 below).
+
+### Postgres storage driver
+
+`docker-compose.yml` also defines an opt-in `postgres` Compose profile
+(a `postgres:16-alpine` service plus a `daemon-postgres` service wired to
+it with `GITAMESH_STORAGE_DRIVER=postgres`), for the
+`@gitamesh/storage-postgres` adapter described in
+`packages/storage-postgres/README.md`. It does not start with a plain
+`docker compose up` — only:
+
+```bash
+docker compose --profile postgres up
+```
+
+This is the same image (`gitamesh-daemon:local`) as the default `daemon`
+service; only the environment variables differ. `pg` (node-postgres) is a
+pure-JS dependency with no native compile step, so it added no new build
+requirements to the `Dockerfile`'s `build` stage — `@gitamesh/storage-postgres`
+is imported dynamically at daemon startup only when
+`GITAMESH_STORAGE_DRIVER=postgres` is actually set.
 
 ### Volume mount for persistence
 

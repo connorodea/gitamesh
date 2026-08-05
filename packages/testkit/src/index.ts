@@ -1,8 +1,5 @@
-import { CoordinationEngine } from "@gitamesh/core";
-import {
-  createInMemorySqliteStorage,
-  type SqliteStorageAdapter,
-} from "@gitamesh/storage-sqlite";
+import { CoordinationEngine, type StorageAdapter } from "@gitamesh/core";
+import { createInMemorySqliteStorage } from "@gitamesh/storage-sqlite";
 import type { Repository, Task, Agent } from "@gitamesh/protocol";
 
 let counter = 0;
@@ -13,7 +10,13 @@ function nextId(prefix: string): string {
 
 export interface TestEngine {
   engine: CoordinationEngine;
-  storage: SqliteStorageAdapter;
+  /**
+   * Typed against the storage-agnostic `StorageAdapter` interface, not the
+   * concrete `SqliteStorageAdapter` class — `createTestEngine()` happens to
+   * use the in-memory SQLite adapter today, but nothing consuming
+   * `TestEngine.storage` should depend on SQLite-only methods.
+   */
+  storage: StorageAdapter;
 }
 
 /** Spins up a fresh in-memory SQLite-backed CoordinationEngine for tests. */
