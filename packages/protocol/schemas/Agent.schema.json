@@ -1,0 +1,90 @@
+{
+  "$ref": "#/definitions/Agent",
+  "definitions": {
+    "Agent": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string"
+        },
+        "namespace_id": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "claude-code"
+            },
+            {
+              "type": "string",
+              "const": "codex"
+            },
+            {
+              "type": "string",
+              "const": "cursor"
+            },
+            {
+              "type": "string",
+              "const": "custom"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "version": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "registered",
+            "online",
+            "draining",
+            "offline",
+            "stale",
+            "revoked"
+          ]
+        },
+        "last_heartbeat_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "agent_id",
+        "namespace_id",
+        "display_name",
+        "runtime",
+        "version",
+        "capabilities",
+        "status",
+        "last_heartbeat_at",
+        "metadata"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

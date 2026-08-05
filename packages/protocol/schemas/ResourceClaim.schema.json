@@ -1,0 +1,70 @@
+{
+  "$ref": "#/definitions/ResourceClaim",
+  "definitions": {
+    "ResourceClaim": {
+      "type": "object",
+      "properties": {
+        "resource_claim_id": {
+          "type": "string"
+        },
+        "repository_id": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        },
+        "attempt_id": {
+          "type": "string"
+        },
+        "resource_type": {
+          "type": "string",
+          "enum": [
+            "repository",
+            "worktree",
+            "branch",
+            "path",
+            "symbol",
+            "integration_target",
+            "custom"
+          ]
+        },
+        "resource_key": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "read",
+            "write",
+            "exclusive"
+          ]
+        },
+        "lease_id": {
+          "type": "string"
+        },
+        "fencing_token": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "resource_claim_id",
+        "repository_id",
+        "task_id",
+        "attempt_id",
+        "resource_type",
+        "resource_key",
+        "mode",
+        "lease_id",
+        "fencing_token",
+        "expires_at"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

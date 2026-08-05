@@ -1,0 +1,30 @@
+{
+  "name": "@gitamesh/storage-sqlite",
+  "version": "0.1.0",
+  "description": "SQLite (better-sqlite3, WAL mode) implementation of the Gitamesh StorageAdapter interface.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --root ../.. packages/storage-sqlite"
+  },
+  "dependencies": {
+    "@gitamesh/core": "workspace:*",
+    "@gitamesh/protocol": "workspace:*",
+    "better-sqlite3": "^11.8.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

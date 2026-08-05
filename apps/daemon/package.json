@@ -1,0 +1,7 @@
+{
+  "name": "@gitamesh/daemon",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Gitamesh coordination daemon (placeholder — not yet built; see README.md).",
+  "license": "Apache-2.0"
+}

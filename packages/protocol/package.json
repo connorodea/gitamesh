@@ -1,0 +1,29 @@
+{
+  "name": "@gitamesh/protocol",
+  "version": "0.1.0",
+  "description": "Versioned domain model and wire-contract schemas for Gitamesh.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "generate-schemas": "tsx src/generate-schemas.ts",
+    "test": "vitest run --root ../.. packages/protocol"
+  },
+  "dependencies": {
+    "zod": "^3.24.1",
+    "zod-to-json-schema": "^3.24.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

@@ -1,0 +1,113 @@
+{
+  "$ref": "#/definitions/EventEnvelope",
+  "definitions": {
+    "EventEnvelope": {
+      "type": "object",
+      "properties": {
+        "event_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "event_type": {
+          "type": "string"
+        },
+        "repository_sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "namespace_id": {
+          "type": "string"
+        },
+        "repository_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "workflow_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "task_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "attempt_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "agent_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "workspace_session_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "correlation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "causation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "idempotency_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "metadata": {
+          "$ref": "#/definitions/EventEnvelope/properties/payload"
+        }
+      },
+      "required": [
+        "event_id",
+        "schema_version",
+        "event_type",
+        "repository_sequence",
+        "occurred_at",
+        "namespace_id",
+        "repository_id",
+        "workflow_id",
+        "task_id",
+        "attempt_id",
+        "agent_id",
+        "workspace_session_id",
+        "correlation_id",
+        "causation_id",
+        "idempotency_key",
+        "payload",
+        "metadata"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
