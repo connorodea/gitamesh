@@ -1,0 +1,36 @@
+{
+  "name": "@gitamesh/mcp-server",
+  "version": "0.1.0",
+  "description": "MCP (Model Context Protocol) stdio server exposing Gitamesh coordination as tools an AI coding agent (Claude Code, Codex, Cursor, etc.) can call directly.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "gitamesh-mcp-server": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run --root ../.. packages/mcp-server"
+  },
+  "dependencies": {
+    "@gitamesh/protocol": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^3.24.1",
+    "zod-to-json-schema": "^3.24.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

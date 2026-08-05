@@ -59,6 +59,16 @@ provider, not a chatbot, not a CI platform, and not an IDE.
   complete/fail/cancel, resource-claim listing/release, `Idempotency-Key`
   threading, and a `subscribeToEvents` WebSocket client with cursor-based
   gap-free auto-reconnect. See `packages/sdk-typescript/README.md`.
+- **`packages/mcp-server`** (`@gitamesh/mcp-server`) — a stdio MCP (Model
+  Context Protocol) server exposing Gitamesh coordination as tools an AI
+  coding agent (Claude Code, Codex, Cursor) can call directly: status,
+  agent registration, task create/list/claim/heartbeat/complete/fail,
+  claim listing, and a cursor-based event-page tool, all
+  schema-validated (zod) and structured — a 409 claim conflict returns a
+  structured result rather than a thrown error. Built against a small
+  temporary internal daemon client pending `@gitamesh/sdk-typescript`
+  integration; see `packages/mcp-server/README.md` for client-config
+  snippets and design notes.
 
 All of the above ship with real, passing tests — see each package's
 `test/` directory. See `docs/adr/0001-protocol-first-storage-agnostic-core.md`
@@ -69,7 +79,6 @@ This is a foundation-layer milestone, not a production-ready system.
 
 ## Not yet built
 
-- MCP adapter
 - Deterministic simulator
 - Postgres storage adapter (for real multi-process safety — the SQLite
   adapter, and therefore the daemon built on it, is single-process only)
