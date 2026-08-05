@@ -52,6 +52,14 @@ provider, not a chatbot, not a CI platform, and not an IDE.
   `apps/daemon/README.md` for the full route table, scope model, and how
   to mint a bootstrap admin token.
 
+- **`packages/sdk-typescript`** (`@gitamesh/sdk`) — a typed, injectable
+  TypeScript client for `apps/daemon`'s HTTP + WebSocket API: agent
+  registration/heartbeat, task create/list/get, atomic `claimTask`
+  (typed `GitameshConflictError` on 409), a heartbeat-loop helper,
+  complete/fail/cancel, resource-claim listing/release, `Idempotency-Key`
+  threading, and a `subscribeToEvents` WebSocket client with cursor-based
+  gap-free auto-reconnect. See `packages/sdk-typescript/README.md`.
+
 All of the above ship with real, passing tests — see each package's
 `test/` directory. See `docs/adr/0001-protocol-first-storage-agnostic-core.md`
 for the key architectural decisions made in this milestone.
@@ -61,7 +69,6 @@ This is a foundation-layer milestone, not a production-ready system.
 
 ## Not yet built
 
-- TypeScript SDK
 - MCP adapter
 - Deterministic simulator
 - Postgres storage adapter (for real multi-process safety — the SQLite
