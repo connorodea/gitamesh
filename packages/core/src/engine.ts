@@ -18,6 +18,7 @@ import {
 import type { StorageAdapter } from "./storage-adapter.js";
 import { canTransitionTask, canTransitionAttempt } from "./state-machines.js";
 import { validateResourceKey, claimsConflict } from "./resource-keys.js";
+import { evaluateFanIn } from "./fan-in.js";
 
 export { validateResourceKey } from "./resource-keys.js";
 
@@ -441,6 +442,12 @@ export class CoordinationEngine {
       const finalTask: Task = { ...updatedTask, updated_at: now };
       this.storage.saveTask(finalTask);
 
+      // Fan-in: a task completing may satisfy the join_policy of any
+      // OTHER task that lists it as a dependency (unblock -> queued for
+      // "all"/"any"; see packages/core/src/fan-in.ts for full semantics,
+      // including the documented "quorum" no-op).
+      evaluateFanIn(this.storage, finalTask.task_id, now);
+
       this.storage.appendEvent({
         schema_version: 1,
         event_type: "attempt.completed",
@@ -527,6 +534,15 @@ export class CoordinationEngine {
       const updatedTask = this.assertTaskTransition(task, targetTaskState);
       const finalTask: Task = { ...updatedTask, updated_at: now };
       this.storage.saveTask(finalTask);
+
+      // Fan-in: only re-evaluate dependents when this task's own retries
+      // are exhausted (it escalated all the way to "failed", not merely
+      // requeued to "queued" for another attempt) — that is the point at
+      // which it becomes a permanently-unsatisfiable dependency for any
+      // "all"/"any" policy depending on it. See packages/core/src/fan-in.ts.
+      if (targetTaskState === "failed") {
+        evaluateFanIn(this.storage, finalTask.task_id, now);
+      }
 
       this.storage.appendEvent({
         schema_version: 1,

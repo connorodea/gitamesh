@@ -79,8 +79,10 @@ provider, not a chatbot, not a CI platform, and not an IDE.
   with a per-scenario `reproductionCommand`. Also honestly documents,
   rather than fakes, the spec scenarios blocked on missing
   `packages/core` features (base_sha staleness, cancellation cascade,
-  join-policy fan-in, integration candidates) — see
-  `packages/simulator/README.md`.
+  integration candidates) — see `packages/simulator/README.md`. Fan-in
+  join-policy evaluation (`Task.join_policy`/`Task.dependencies`) is
+  implemented (`packages/core/src/fan-in.ts`); `"quorum"` policy remains
+  a documented no-op pending a threshold field in the schema.
 
 All of the above ship with real, passing tests — see each package's
 `test/` directory. See `docs/adr/0001-protocol-first-storage-agnostic-core.md`

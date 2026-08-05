@@ -64,6 +64,22 @@ export class MemoryStorageAdapter implements StorageAdapter {
   saveTask(task: Task): void {
     this.tasks.set(task.task_id, task);
   }
+  /**
+   * NOTE: this in-memory adapter does not (yet) implement the full
+   * `StorageAdapter` interface (no agents/tokens/event-cursor/resource-
+   * claim-listing methods) — it only ever needed the subset
+   * `CoordinationEngine`'s own unit tests exercise. `listTasks` was added
+   * specifically to support `evaluateFanIn` (packages/core/src/fan-in.ts),
+   * which needs to find every task that depends on a given task id.
+   */
+  listTasks(filter?: { repositoryId?: string; status?: string }): Task[] {
+    return [...this.tasks.values()].filter(
+      (t) =>
+        (filter?.repositoryId === undefined ||
+          t.repository_id === filter.repositoryId) &&
+        (filter?.status === undefined || t.status === filter.status),
+    );
+  }
 
   getAttempt(attemptId: string): TaskAttempt | undefined {
     return this.attempts.get(attemptId);

@@ -16,7 +16,7 @@ const EXPECTED_STATUS: Record<string, ScenarioStatus> = {
   "stale-fencing-token-rejection": "pass",
   "snapshot-staleness-gap": "skipped",
   "cancellation-cascade-gap": "skipped",
-  "fan-in-join-policy-gap": "skipped",
+  "fan-in-join-policy": "pass",
   "integration-candidates-skipped": "skipped",
   "path-traversal-symlink": "pass",
   "retry-idempotency-complete-fail": "pass",

@@ -88,7 +88,7 @@ deterministic.
 | 5 | `stale-fencing-token-rejection` | **implemented** | A superseded ("zombie") agent's heartbeat/complete/fail calls are all rejected once a fresh attempt has taken over. |
 | 6 | `snapshot-staleness-gap` | **honest gap** | See below. |
 | 7 | `cancellation-cascade-gap` | **honest gap** | See below. |
-| 8 | `fan-in-join-policy-gap` | **honest gap** | See below. |
+| 8 | `fan-in-join-policy` | **implemented** | A task with `join_policy: "any"` unblocks (`pending -> queued`) as soon as one of its `dependencies` completes; a task with `join_policy: "all"` stays `pending` after only one of two dependencies completes, then unblocks once both do. `join_policy: "quorum"` remains a documented no-op — see below. |
 | 9 | `integration-candidates-skipped` | **blocked, skipped** | See below. |
 | 10 | `path-traversal-symlink` | **implemented** | Malicious resource keys (`../..`, absolute paths, NUL bytes, `~/...`) are rejected lexically, both directly via `validateResourceKey` and via `claimTask`, before anything is acquired. |
 | 11 | `retry-idempotency-complete-fail` | **implemented** | A redelivered `completeAttempt`/`failAttempt` call (ack lost, retried) replays instead of double-mutating. |
@@ -126,13 +126,6 @@ behavior instead:
   via storage (there being no engine method to call) and confirms its
   child and dependent tasks are left untouched and independently
   claimable.
-- **`fan-in-join-policy-gap`** (partial fan-in under a join policy):
-  `Task.join_policy` (`"all" | "any" | "quorum"`) and
-  `Task.dependencies` are real, validated schema fields, but nothing in
-  `packages/core/src/engine.ts` ever reads either one — there is no
-  fan-in evaluator. The scenario completes one of two `"any"`-policy
-  dependencies and confirms the depending task's status is completely
-  unaffected.
 - **`integration-candidates-skipped`** (conflicting integration
   candidates): `IntegrationState` / `INTEGRATION_TRANSITIONS` are
   defined in `packages/core/src/state-machines.ts`, but there is no
@@ -148,10 +141,49 @@ behavior instead:
   there is nothing to take down — this scenario intentionally
   constructs no fake Redis client and asserts nothing beyond that fact.
 
-None of the five gap scenarios above are counted as failures — the
+None of the four gap scenarios above are counted as failures — the
 runner treats `"skipped"` as a distinct status from `"fail"` and only a
 genuine assertion failure inside an implemented scenario produces a
 non-zero exit code.
+
+### A gap that's now closed, with one deliberately-unimplemented corner (`fan-in-join-policy`)
+
+`fan-in-join-policy` (scenario 8) used to be an honest gap
+(`fan-in-join-policy-gap`): `packages/core` stored `Task.join_policy`
+and `Task.dependencies` but never read either. `packages/core/src/fan-in.ts`
+now implements the reducer — `evaluateFanIn` runs from
+`CoordinationEngine.completeAttempt` (a task completing) and from
+`failAttempt` (a task escalating all the way to `failed`, i.e. its
+retries are exhausted), and re-evaluates every OTHER task that lists the
+triggering task in `dependencies`:
+
+- `"all"` unblocks (`pending`/`blocked` -> `queued`) only once every
+  dependency is `completed`.
+- `"any"` unblocks as soon as one dependency is `completed`.
+- If a dependency reaches a state it can never leave except
+  `completed` — `cancelled`, `dead_letter`, or `failed` with retries
+  exhausted — and that permanently dooms the policy (any dependency for
+  `"all"`; every dependency for `"any"`), the depending task is
+  escalated to `dead_letter` (the "operator escape hatch" state
+  `packages/core/src/state-machines.ts` already documents) rather than
+  left waiting on a dependency that will never complete.
+- **`"quorum"` remains unimplemented, on purpose.** `TaskSchema`
+  (`packages/protocol/src/entities.ts`) has no quorum-size or threshold
+  field anywhere — there is nothing to evaluate a quorum against.
+  Inventing a default (e.g. "51%" or "at least 2") would be fabricating
+  schema semantics that don't exist. `evaluateFanIn` treats
+  `"quorum"`-policy tasks as a documented no-op: they simply never
+  auto-unblock through this evaluator until a real threshold field is
+  added to the schema and a companion PR implements it against that
+  field. This is a real, disclosed limitation, not silently-broken
+  behavior.
+
+Only tasks currently `"pending"` or `"blocked"` are ever mutated by
+`evaluateFanIn` — those are the only statuses with a state-machine-legal
+transition straight to `"queued"` or `"dead_letter"`, and the only ones
+that plausibly mean "still waiting on its dependencies". A depending
+task that has already been claimed is left alone regardless of what its
+dependencies do afterward.
 
 ### A genuine nuance the simulator surfaced (not a defect, documented in `stale-fencing-token-rejection.ts`)
 
@@ -212,7 +244,7 @@ src/
     stale-fencing-token-rejection.ts
     snapshot-staleness-gap.ts
     cancellation-cascade-gap.ts
-    fan-in-join-policy-gap.ts
+    fan-in-join-policy.ts
     integration-candidates-skipped.ts
     path-traversal-symlink.ts
     retry-idempotency-complete-fail.ts

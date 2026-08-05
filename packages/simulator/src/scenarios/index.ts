@@ -5,7 +5,7 @@ import { workerCrashRequeueScenario } from "./worker-crash-requeue.js";
 import { staleFencingTokenRejectionScenario } from "./stale-fencing-token-rejection.js";
 import { snapshotStalenessGapScenario } from "./snapshot-staleness-gap.js";
 import { cancellationCascadeGapScenario } from "./cancellation-cascade-gap.js";
-import { fanInJoinPolicyGapScenario } from "./fan-in-join-policy-gap.js";
+import { fanInJoinPolicyScenario } from "./fan-in-join-policy.js";
 import { integrationCandidatesSkippedScenario } from "./integration-candidates-skipped.js";
 import { pathTraversalSymlinkScenario } from "./path-traversal-symlink.js";
 import { retryIdempotencyCompleteFailScenario } from "./retry-idempotency-complete-fail.js";
@@ -28,7 +28,7 @@ export const ALL_SCENARIOS: Scenario[] = [
   staleFencingTokenRejectionScenario,
   snapshotStalenessGapScenario,
   cancellationCascadeGapScenario,
-  fanInJoinPolicyGapScenario,
+  fanInJoinPolicyScenario,
   integrationCandidatesSkippedScenario,
   pathTraversalSymlinkScenario,
   retryIdempotencyCompleteFailScenario,
