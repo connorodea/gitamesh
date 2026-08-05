@@ -69,6 +69,18 @@ provider, not a chatbot, not a CI platform, and not an IDE.
   temporary internal daemon client pending `@gitamesh/sdk-typescript`
   integration; see `packages/mcp-server/README.md` for client-config
   snippets and design notes.
+- **`packages/simulator`** (`@gitamesh/simulator`) — the deterministic,
+  seedable adversarial scenario harness from the spec's `gitamesh
+  simulate` (section 16): drives a real `CoordinationEngine` + real
+  in-memory SQLite storage through claim races, resource-claim races,
+  duplicate/idempotent-command replay, worker-crash + fencing-token
+  supersession, and path-traversal/symlink-key rejection, all from a
+  single `mulberry32` PRNG seed, and writes a `simulation-report.json`
+  with a per-scenario `reproductionCommand`. Also honestly documents,
+  rather than fakes, the spec scenarios blocked on missing
+  `packages/core` features (base_sha staleness, cancellation cascade,
+  join-policy fan-in, integration candidates) — see
+  `packages/simulator/README.md`.
 
 All of the above ship with real, passing tests — see each package's
 `test/` directory. See `docs/adr/0001-protocol-first-storage-agnostic-core.md`
@@ -79,7 +91,6 @@ This is a foundation-layer milestone, not a production-ready system.
 
 ## Not yet built
 
-- Deterministic simulator
 - Postgres storage adapter (for real multi-process safety — the SQLite
   adapter, and therefore the daemon built on it, is single-process only)
 - Redis-based signaling / pub-sub (the daemon's WebSocket broadcaster is
