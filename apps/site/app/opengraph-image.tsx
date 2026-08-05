@@ -13,7 +13,7 @@ const ink800 = "#0d121a";
 const line = "#1c232e";
 const mesh = "#4fd1c5";
 const meshDim = "#2c5a56";
-const claim = "#f5b942";
+const claim = "#FF6B35";
 const fg = "#e8ecf1";
 const fgMuted = "#93a1b3";
 

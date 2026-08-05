@@ -1,24 +1,36 @@
 // ---------------------------------------------------------------------------
-// Gitamesh hero — coordination constellation
+// Gitamesh — coordination constellation
 //
-//   NodeGlowMaterial      fresnel rim-light + 3D simplex shimmer; sweeps
-//                         from a resting idle glow to a hot claimed core
+//   NodeGlowMaterial      fresnel rim-light + 3D simplex shimmer; the low
+//                         tier's node shading, and the hot claimed core
+//   NodeHaloMaterial      additive back-faced fresnel shell that sits around
+//                         a physically-shaded node — the atmospheric bloom
+//                         seed a PBR surface can't produce on its own
 //   EdgeGlowMaterial      per-vertex travelling pulse along the wire —
 //                         a claim reads as energy flowing outward, not a
 //                         flat color swap
 //   AmbientFieldMaterial  GPU-only drifting background particle field,
 //                         zero per-frame CPU writes, additive depth haze
-//   (post pass, see MeshScene.tsx)   Bloom + Noise + Vignette
+//   (post pass, see MeshScene.tsx)   Bloom + ChromaticAberration + Noise +
+//                         Vignette
+//
+// On the mid/high tiers the node *surface* is no longer one of these shaders
+// at all: it is a MeshPhysicalMaterial lit by a baked Lightformer
+// environment (see StageEnvironment.tsx), so nodes reflect the rig the way a
+// real object would. NodeHaloMaterial then wraps that surface in the glow.
+// The split matters — emission alone reads flat and cheap, reflection alone
+// reads inert; the premium look comes from having both.
 //
 // Goal: a believable coordination mesh — agents (nodes) racing to claim
 // tasks, the claim itself visualized as travelling energy along the graph,
 // sitting in front of a living depth-hazed field rather than a static
 // backdrop or a single cycling sphere.
 //
-// Known issue: DepthOfField was attempted (oryzo.ai-style near/far blur)
-// and reverted — a real glBlitFramebuffer depth/stencil aliasing error on
-// this r3f v8 / three 0.169 pairing blanks the canvas outright. Fog + bloom
-// stand in for the depth cue until postprocessing moves past this combo.
+// Known issue (still open): DepthOfField was attempted (oryzo.ai-style
+// near/far blur) and reverted — a real glBlitFramebuffer depth/stencil
+// aliasing error on this r3f v8 / three 0.169 pairing blanks the canvas
+// outright. NOT re-attempted in this pass; see the note in MeshScene.tsx for
+// what stands in for the depth cue instead.
 //
 // Apache-2.0 · github.com/connorodea/gitamesh
 // ---------------------------------------------------------------------------
@@ -43,7 +55,7 @@ export const NodeGlowMaterial = shaderMaterial(
     uTime: 0,
     uActive: 0,
     uBaseColor: new THREE.Color("#4fd1c5"),
-    uActiveColor: new THREE.Color("#f5b942"),
+    uActiveColor: new THREE.Color("#FF6B35"),
   },
   /* vertex */ `
     varying vec3 vNormal;
@@ -85,6 +97,70 @@ export const NodeGlowMaterial = shaderMaterial(
 );
 
 /**
+ * NodeHaloMaterial — the atmospheric shell around a physically-shaded node.
+ *
+ * Rendered on a slightly larger sphere with `side: BackSide` and additive
+ * blending, so it draws only where the silhouette exceeds the solid node:
+ * the result is a soft halo hugging the object's edge rather than a sprite
+ * pasted in front of it. Alpha is pure fresnel, so the halo thins where the
+ * surface faces the camera and thickens at grazing angles — which is what
+ * makes it read as light in air instead of a decal.
+ *
+ * This is also the scene's bloom seed. A PBR surface lit by an environment
+ * map rarely exceeds the bloom luminance threshold on its own (that is the
+ * point of it looking like a real material), so without this shell the whole
+ * constellation would go correctly-lit but lifeless.
+ */
+export const NodeHaloMaterial = shaderMaterial(
+  {
+    uTime: 0,
+    uActive: 0,
+    uIntensity: 1,
+    uBaseColor: new THREE.Color("#4fd1c5"),
+    uActiveColor: new THREE.Color("#FF6B35"),
+  },
+  /* vertex */ `
+    varying vec3 vNormal;
+    varying vec3 vViewDir;
+    varying vec3 vWorldPos;
+
+    void main() {
+      vec4 worldPos = modelMatrix * vec4(position, 1.0);
+      vWorldPos = worldPos.xyz;
+      vNormal = normalize(normalMatrix * normal);
+      vViewDir = normalize(cameraPosition - worldPos.xyz);
+      gl_Position = projectionMatrix * viewMatrix * worldPos;
+    }
+  `,
+  /* fragment */ `
+    ${SIMPLEX_NOISE_3D}
+
+    uniform float uTime;
+    uniform float uActive;
+    uniform float uIntensity;
+    uniform vec3 uBaseColor;
+    uniform vec3 uActiveColor;
+
+    varying vec3 vNormal;
+    varying vec3 vViewDir;
+    varying vec3 vWorldPos;
+
+    void main() {
+      // Back-facing shell: the normal points away from the camera, so the
+      // fresnel term is taken against the inverted normal.
+      float facing = clamp(dot(-vNormal, vViewDir), 0.0, 1.0);
+      float fresnel = pow(1.0 - facing, 3.0);
+      float breathe = 0.85 + 0.15 * snoise(vWorldPos * 1.6 + uTime * 0.35);
+
+      vec3 color = mix(uBaseColor, uActiveColor, uActive);
+      float alpha = fresnel * breathe * uIntensity * mix(0.55, 1.6, uActive);
+
+      gl_FragColor = vec4(color * mix(1.0, 2.2, uActive), clamp(alpha, 0.0, 1.0));
+    }
+  `
+);
+
+/**
  * EdgeGlowMaterial — the coordination graph's connective tissue.
  *
  * Each edge line carries a per-vertex `aProgress` attribute (0 at its start
@@ -93,6 +169,13 @@ export const NodeGlowMaterial = shaderMaterial(
  * claimed node outward along the wire, rather than the whole edge just
  * flipping color. `uDir` lets the pulse travel start->end or end->start
  * depending on which endpoint just claimed.
+ *
+ * `uOrder` is the scroll-driven narrative scalar (see CameraRig.tsx). It
+ * runs 0 = scattered/incoherent to 1 = fully coordinated, and it controls how
+ * strongly the wires assert themselves: during the "no traffic control"
+ * section the graph's connective tissue nearly vanishes, and it re-lights as
+ * the reader arrives at the primitives that impose order. `uDim` fades the
+ * whole graph back as the scene recedes behind the closing sections.
  */
 export const EdgeGlowMaterial = shaderMaterial(
   {
@@ -101,8 +184,10 @@ export const EdgeGlowMaterial = shaderMaterial(
     uPulseStart: -10,
     uPulseDuration: 0.9,
     uDir: 1,
+    uOrder: 1,
+    uDim: 1,
     uBaseColor: new THREE.Color("#2c5a56"),
-    uActiveColor: new THREE.Color("#f5b942"),
+    uActiveColor: new THREE.Color("#FF6B35"),
   },
   /* vertex */ `
     attribute float aProgress;
@@ -118,12 +203,16 @@ export const EdgeGlowMaterial = shaderMaterial(
     uniform float uPulseStart;
     uniform float uPulseDuration;
     uniform float uDir;
+    uniform float uOrder;
+    uniform float uDim;
     uniform vec3 uBaseColor;
     uniform vec3 uActiveColor;
     varying float vProgress;
 
     void main() {
-      float baseOpacity = mix(0.32, 0.85, uActive);
+      // A scattered graph (uOrder -> 0) keeps only a ghost of its wiring.
+      float coherence = mix(0.18, 1.0, uOrder);
+      float baseOpacity = mix(0.32, 0.85, uActive) * coherence;
       vec3 color = mix(uBaseColor, uActiveColor, uActive * 0.6);
 
       float t = (uTime - uPulseStart) / uPulseDuration;
@@ -137,7 +226,7 @@ export const EdgeGlowMaterial = shaderMaterial(
       }
 
       vec3 outColor = color + uActiveColor * pulseGlow * 2.2;
-      float opacity = clamp(baseOpacity + pulseGlow * 0.9, 0.0, 1.0);
+      float opacity = clamp(baseOpacity + pulseGlow * 0.9, 0.0, 1.0) * uDim;
       gl_FragColor = vec4(outColor, opacity);
     }
   `
@@ -176,9 +265,16 @@ export const AmbientFieldMaterial = shaderMaterial(
       pos.z += snoise(vec3(pos.z * 0.15, pos.x * 0.15, t + 23.0)) * 0.6;
 
       vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
-      vDepthFade = clamp(1.0 - (-mvPosition.z) / 16.0, 0.05, 1.0);
+      vDepthFade = clamp(1.0 - (-mvPosition.z) / 26.0, 0.05, 1.0);
       gl_Position = projectionMatrix * mvPosition;
-      gl_PointSize = aSize * uPixelRatio * (140.0 / -mvPosition.z);
+
+      // Perspective point scaling has a 1/z singularity: a particle that
+      // drifts near the camera plane balloons to fill a large part of the
+      // screen. Unclamped, that turned the field into grey bokeh blobs
+      // sitting on top of the headline. Clamped, the field stays what it is
+      // meant to be — depth haze.
+      float size = aSize * uPixelRatio * (150.0 / -mvPosition.z);
+      gl_PointSize = clamp(size, 1.0, 16.0);
     }
   `,
   /* fragment */ `
@@ -190,14 +286,22 @@ export const AmbientFieldMaterial = shaderMaterial(
     void main() {
       vec2 uv = gl_PointCoord - 0.5;
       float d = length(uv);
-      float alpha = smoothstep(0.5, 0.0, d);
+      // Squared falloff concentrates each particle into a small bright core
+      // with a long faint skirt, rather than a uniform soft disc — reads as
+      // a distant point of light instead of a smudge.
+      float alpha = pow(smoothstep(0.5, 0.0, d), 2.0);
       vec3 color = mix(uColorA, uColorB, vSeed);
-      gl_FragColor = vec4(color, alpha * vDepthFade * 0.75);
+      gl_FragColor = vec4(color, alpha * vDepthFade * 0.42);
     }
   `
 );
 
-extend({ NodeGlowMaterial, EdgeGlowMaterial, AmbientFieldMaterial });
+extend({
+  NodeGlowMaterial,
+  NodeHaloMaterial,
+  EdgeGlowMaterial,
+  AmbientFieldMaterial,
+});
 
 declare module "@react-three/fiber" {
   interface ThreeElements {
@@ -207,12 +311,21 @@ declare module "@react-three/fiber" {
       uBaseColor?: THREE.Color | string;
       uActiveColor?: THREE.Color | string;
     };
+    nodeHaloMaterial: ThreeElements["shaderMaterial"] & {
+      uTime?: number;
+      uActive?: number;
+      uIntensity?: number;
+      uBaseColor?: THREE.Color | string;
+      uActiveColor?: THREE.Color | string;
+    };
     edgeGlowMaterial: ThreeElements["shaderMaterial"] & {
       uTime?: number;
       uActive?: number;
       uPulseStart?: number;
       uPulseDuration?: number;
       uDir?: number;
+      uOrder?: number;
+      uDim?: number;
       uBaseColor?: THREE.Color | string;
       uActiveColor?: THREE.Color | string;
     };

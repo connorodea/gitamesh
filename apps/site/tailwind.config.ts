@@ -18,9 +18,13 @@ const config: Config = {
           DEFAULT: "#4fd1c5",
           dim: "#2c5a56",
         },
+        // The "hot / active" accent: a claimed node, the primary CTA, the
+        // status dot. Tropic orange as of the 2026-08 palette change — same
+        // semantic role the amber held, new hue. `dim` is the darkened step
+        // for hover/pressed states.
         claim: {
-          DEFAULT: "#f5b942",
-          dim: "#8a6a2c",
+          DEFAULT: "#FF6B35",
+          dim: "#E85A2A",
         },
         fg: {
           DEFAULT: "#e8ecf1",

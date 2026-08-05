@@ -19,7 +19,7 @@ export function Mark({ className = "h-6 w-6" }: { className?: string }) {
       <line x1="7" y1="13" x2="16" y2="16" stroke="#2c5a56" strokeWidth="1.4" />
       <line x1="25" y1="22" x2="16" y2="16" stroke="#2c5a56" strokeWidth="1.4" />
       <line x1="7" y1="22" x2="16" y2="16" stroke="#2c5a56" strokeWidth="1.4" />
-      <circle cx="16" cy="7" r="2.6" fill="#f5b942" />
+      <circle cx="16" cy="7" r="2.6" fill="#FF6B35" />
       <circle cx="25" cy="13" r="2.2" fill="#4fd1c5" />
       <circle cx="25" cy="22" r="2.2" fill="#1c2530" stroke="#4fd1c5" strokeWidth="1" />
       <circle cx="16" cy="28" r="2.2" fill="#1c2530" stroke="#2c5a56" strokeWidth="1" />

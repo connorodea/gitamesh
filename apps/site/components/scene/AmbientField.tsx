@@ -19,7 +19,10 @@ type AmbientFieldMaterialImpl = THREE.ShaderMaterial & {
  */
 export function AmbientField({
   count,
-  radius = 9,
+  // Pushed out from 9: the camera track now travels between z 7.2 and 16.5,
+  // and at the old radius the shell intersected the camera — particles
+  // passing through the near plane were what produced the oversized bokeh.
+  radius = 15,
   reducedMotion,
 }: {
   count: number;

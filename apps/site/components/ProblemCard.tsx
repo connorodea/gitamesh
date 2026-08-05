@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { useReducedMotion } from "./useReducedMotion";
+import { useSpotlight } from "./useSpotlight";
 import { revealVariants, EASE_IN_OUT } from "@/lib/motion";
 
 type ProblemCardProps = {
@@ -19,11 +20,14 @@ type ProblemCardProps = {
  */
 export function ProblemCard({ title, body }: ProblemCardProps) {
   const reducedMotion = useReducedMotion();
+  const { ref, spotlightProps } = useSpotlight<HTMLDivElement>();
 
   return (
     <motion.div
+      ref={ref}
+      {...spotlightProps}
       variants={revealVariants(reducedMotion)}
-      className="group relative overflow-hidden bg-ink-900 p-6 transition-colors duration-300 hover:bg-ink-800 sm:p-8"
+      className="spotlight group relative h-full overflow-hidden rounded-2xl border border-line bg-ink-900/80 p-7 backdrop-blur-xl transition-colors duration-300 hover:bg-ink-800/80 sm:p-9"
     >
       <div
         aria-hidden="true"
@@ -44,7 +48,7 @@ export function ProblemCard({ title, body }: ProblemCardProps) {
               }}
             />
             <motion.span
-              className="absolute top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-claim shadow-[0_0_6px_1px_rgba(245,185,66,0.6)]"
+              className="absolute top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-claim shadow-[0_0_6px_1px_rgba(255,107,53,0.6)]"
               style={{ right: 0 }}
               animate={{ right: ["0%", "44%", "0%"] }}
               transition={{
@@ -66,14 +70,10 @@ export function ProblemCard({ title, body }: ProblemCardProps) {
           </>
         )}
       </div>
-      <h3 className="font-semibold text-fg transition-transform duration-200 group-hover:translate-x-0.5">
+      <h3 className="text-[17px] font-semibold tracking-[-0.015em] text-fg transition-transform duration-300 ease-out group-hover:translate-x-0.5">
         {title}
       </h3>
-      <p className="mt-2 text-sm text-fg-muted">{body}</p>
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 border border-transparent transition-colors duration-200 group-hover:border-claim/30"
-      />
+      <p className="mt-2.5 text-[15px] leading-relaxed text-fg-muted">{body}</p>
     </motion.div>
   );
 }

@@ -1,124 +1,290 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { EffectComposer, Bloom, Vignette, Noise } from "@react-three/postprocessing";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useThree } from "@react-three/fiber";
+import {
+  EffectComposer,
+  Bloom,
+  Vignette,
+  Noise,
+  ChromaticAberration,
+} from "@react-three/postprocessing";
+import { BlendFunction } from "postprocessing";
 import * as THREE from "three";
-import { Constellation } from "./scene/Constellation";
+import { Constellation, buildMesh, NODE_COUNTS } from "./scene/Constellation";
 import { AmbientField } from "./scene/AmbientField";
-import { getDeviceTier, TIER_SETTINGS } from "./scene/deviceTier";
+import { TimeCorridor } from "./scene/TimeCorridor";
+import { DaughterGlobes } from "./scene/DaughterGlobes";
+import { AnnotationLayer } from "./scene/AnnotationLayer";
+import { StageEnvironment } from "./scene/StageEnvironment";
+import { CameraRig, STATIC_STAGE, type StageState } from "./scene/CameraRig";
+import {
+  TIER_SETTINGS,
+  type DeviceTier,
+  type TierSettings,
+} from "./scene/deviceTier";
+import { scrollState } from "@/lib/scrollStore";
 
 /**
- * Subtle camera parallax on pointer movement — a small offset applied on
- * top of the scene's own auto-rotation, giving the constellation real
- * depth-of-field-adjacent parallax as the viewer's mouse moves. Skipped
- * entirely under prefers-reduced-motion.
+ * On the low tier the stage is hero-scoped, so once the reader has scrolled a
+ * viewport and a half past it there is nothing to render — but an r3f Canvas
+ * with `frameloop="always"` keeps rendering anyway, forever, off-screen. This
+ * watches the scroll store and flips the loop off, which is the difference
+ * between a phone spending its GPU budget on an invisible scene for the
+ * entire rest of the page and spending none.
  */
-function CameraParallax({ reducedMotion }: { reducedMotion: boolean }) {
-  const { camera, pointer } = useThree();
-  const target = useRef(new THREE.Vector3(0, 0, 8.5));
-
-  useFrame(() => {
-    if (reducedMotion) return;
-    target.current.x = pointer.x * 0.5;
-    target.current.y = pointer.y * 0.3;
-    camera.position.x += (target.current.x - camera.position.x) * 0.04;
-    camera.position.y += (target.current.y - camera.position.y) * 0.04;
-    camera.lookAt(0, 0, 0);
-  });
-
-  return null;
-}
-
-function ScrollCamera({
-  reducedMotion,
-  scrollProgressRef,
-}: {
-  reducedMotion: boolean;
-  scrollProgressRef: React.MutableRefObject<number>;
-}) {
-  const { camera } = useThree();
-  useFrame(() => {
-    if (reducedMotion) return;
-    // Scroll-linked dolly: the constellation drifts closer as the hero
-    // scrolls past, echoing a scroll-scrubbed camera move rather than a
-    // scene that only ever animates on its own timer. Reads a plain ref
-    // (updated by a passive scroll listener), never React state, so
-    // scrolling never forces a re-render of the scene graph.
-    const targetZ = 8.5 - scrollProgressRef.current * 1.6;
-    camera.position.z += (targetZ - camera.position.z) * 0.08;
-  });
-  return null;
-}
-
-export function MeshScene({ reducedMotion }: { reducedMotion: boolean }) {
-  const [dense, setDense] = useState(true);
-  const [tier, setTier] = useState<"low" | "mid" | "high">("high");
-  const scrollProgressRef = useRef(0);
+function useOffscreenParked(active: boolean): boolean {
+  const [parked, setParked] = useState(false);
 
   useEffect(() => {
-    const el = document.getElementById("hero-3d-root");
-    if (!el || reducedMotion) return;
-    let ticking = false;
-    const update = () => {
-      ticking = false;
-      const rect = el.getBoundingClientRect();
-      const viewportH = window.innerHeight || 1;
-      const total = rect.height + viewportH;
-      const traveled = viewportH - rect.top;
-      scrollProgressRef.current = Math.min(1, Math.max(0, traveled / total));
+    if (!active) {
+      setParked(false);
+      return;
+    }
+    let frame = 0;
+    const check = () => {
+      const shouldPark = scrollState.hero > 1.4;
+      setParked((prev) => (prev === shouldPark ? prev : shouldPark));
+      frame = requestAnimationFrame(check);
     };
-    const onScroll = () => {
-      if (!ticking) {
-        ticking = true;
-        requestAnimationFrame(update);
+    frame = requestAnimationFrame(check);
+    return () => cancelAnimationFrame(frame);
+  }, [active]);
+
+  return parked;
+}
+
+/**
+ * Stops the render loop while the tab is in the background.
+ *
+ * For a canvas that only occupied the hero this barely mattered — it scrolled
+ * away and the loop could park. A persistent full-page stage is, by
+ * definition, always "in viewport", so the only remaining free win is the
+ * Page Visibility API. Browsers throttle rAF in background tabs but do not
+ * reliably stop it, and a backgrounded tab quietly rendering a full
+ * post-processed scene is exactly the kind of thing that drains a laptop
+ * battery for no benefit whatsoever.
+ */
+function useTabHidden(): boolean {
+  const [hidden, setHidden] = useState(false);
+
+  useEffect(() => {
+    const sync = () => setHidden(document.hidden);
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    return () => document.removeEventListener("visibilitychange", sync);
+  }, []);
+
+  return hidden;
+}
+
+/**
+ * Renders a short burst of frames after mount, then stops.
+ *
+ * A reduced-motion visitor gets `frameloop="demand"`, which renders once on
+ * mount and then only when something calls `invalidate()`. That single frame
+ * is not enough: drei's `<Environment>` bakes its cube map from inside the
+ * render loop, and the EffectComposer needs a pass of its own, so a
+ * one-frame scene composes with no environment map at all — the PBR nodes
+ * come out unlit and black. Pumping ~1.2s of frames lets the bake and the
+ * post chain settle into a correct still image, after which the loop parks
+ * for good.
+ *
+ * The result for a reduced-motion visitor is the intended one: a fully
+ * lit, fully composed, completely static frame — not a degraded scene, and
+ * not a running animation.
+ */
+function StaticFramePump() {
+  const invalidate = useThree((state) => state.invalidate);
+
+  useEffect(() => {
+    const started = performance.now();
+    let frame = 0;
+    const pump = () => {
+      invalidate();
+      if (performance.now() - started < 1200) {
+        frame = requestAnimationFrame(pump);
       }
     };
-    update();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-    };
-  }, [reducedMotion]);
+    frame = requestAnimationFrame(pump);
+    return () => cancelAnimationFrame(frame);
+  }, [invalidate]);
 
+  return null;
+}
+
+/**
+ * The post chain, assembled as an array.
+ *
+ * `<EffectComposer>` types its children as strictly `JSX.Element`, so an
+ * inline `{cond && <Effect/>}` (which can evaluate to `false`) or even a JSX
+ * comment (which evaluates to `undefined`) is a type error. Building the list
+ * here keeps the chain conditional AND documented.
+ */
+function buildEffects(settings: TierSettings) {
+  const effects = [
+    // Retuned for the PBR node surfaces. The old threshold of 0.18 bloomed
+    // nearly the whole frame — fine when every node was a flat emissive ball,
+    // far too eager now that nodes are dark dielectrics with bright specular
+    // hits. Raising the threshold and widening the smoothing means only
+    // genuine highlights (the halo shells, the claim core, specular pinpoints)
+    // bloom, and they fall off filmically instead of turning into a haze.
+    <Bloom
+      key="bloom"
+      intensity={1.15}
+      luminanceThreshold={0.62}
+      luminanceSmoothing={0.5}
+      mipmapBlur
+      radius={0.72}
+    />,
+  ];
+
+  if (settings.chromaticAberration) {
+    // Deliberately near the edge of perception: sub-pixel lateral dispersion,
+    // radially modulated so the frame centre stays clean and only the corners
+    // pick it up. Enough to imply a real lens, not enough to notice as an
+    // effect. High tier only.
+    effects.push(
+      <ChromaticAberration
+        key="chroma"
+        offset={new THREE.Vector2(0.0004, 0.0006)}
+        radialModulation
+        modulationOffset={0.35}
+        blendFunction={BlendFunction.NORMAL}
+      />
+    );
+  }
+
+  // Grain lowered and switched to soft-light blending so it reads as film
+  // stock rather than TV static over the flat ink-950 background, where
+  // additive noise at the previous opacity was most visible.
+  effects.push(
+    <Noise
+      key="noise"
+      premultiply
+      opacity={0.022}
+      blendFunction={BlendFunction.SOFT_LIGHT}
+    />,
+    <Vignette key="vignette" eskil={false} offset={0.18} darkness={0.95} />
+  );
+
+  return effects;
+}
+
+export function MeshScene({
+  reducedMotion,
+  tier,
+  annotationRef,
+}: {
+  reducedMotion: boolean;
+  tier: DeviceTier;
+  /** DOM overlay the annotation callouts write their projected positions to. */
+  annotationRef: React.RefObject<HTMLDivElement>;
+}) {
   const settings = TIER_SETTINGS[tier];
+  const [dense, setDense] = useState(tier !== "low");
+  const stageRef = useRef<StageState>({ ...STATIC_STAGE });
+
+  const anchors = useMemo(
+    () =>
+      buildMesh(dense ? NODE_COUNTS.desktop : NODE_COUNTS.mobile).map(
+        (n) => n.position
+      ),
+    [dense]
+  );
+
+  const parked = useOffscreenParked(!settings.fullPageStage && !reducedMotion);
+  const tabHidden = useTabHidden();
+
+  // "demand" renders once and then only when invalidated — correct for a
+  // reduced-motion visitor, who should get a single static composed frame.
+  // "never" fully parks the loop: for an off-screen low-tier stage, or
+  // whenever the tab is in the background.
+  //
+  // Note on the alternative: r3f's guidance for a persistent canvas is
+  // `frameloop="demand"` plus `invalidate()` on scroll. That does not apply
+  // here, because this scene is never genuinely idle by design — the mesh
+  // rotates, claims fire on a timer, and the particle field drifts whether or
+  // not the reader is scrolling. Switching to demand would mean freezing the
+  // scene the moment scrolling stops, trading the "living instrument" read
+  // for battery. The tier system and the visibility pause are where the cost
+  // is recovered instead.
+  const frameloop = reducedMotion
+    ? "demand"
+    : parked || tabHidden
+      ? "never"
+      : "always";
 
   return (
     <Canvas
       dpr={settings.dpr}
-      frameloop={reducedMotion ? "demand" : "always"}
-      camera={{ position: [0, 0, 8.5], fov: 45 }}
+      frameloop={frameloop}
+      camera={{ position: [0, 0, 12.4], fov: 45 }}
       gl={{ antialias: true, powerPreference: "high-performance" }}
       onCreated={({ gl, size }) => {
         gl.setClearColor("#000000", 0);
+        // ACES filmic tonemapping is what keeps the bright halo cores from
+        // clipping to flat white the moment bloom hits them — highlights roll
+        // off instead of blowing out. This is a large part of why the scene
+        // reads "shot" rather than "rendered".
+        gl.toneMapping = THREE.ACESFilmicToneMapping;
+        gl.toneMappingExposure = 1.15;
         setDense(size.width > 640);
-        setTier(getDeviceTier(size.width));
       }}
       aria-hidden="true"
     >
-      <fog attach="fog" args={["#05070a", 7, 15]} />
-      <ambientLight intensity={0.6} />
-      <pointLight position={[5, 5, 5]} intensity={40} color="#4fd1c5" />
+      {/* Fog is doing double duty as the depth cue that DepthOfField would
+          otherwise provide — see the known-issue note in scene/materials.ts.
+          DoF was NOT re-attempted in this pass; the glBlitFramebuffer
+          depth/stencil aliasing failure on r3f v8 + three 0.169 is a hard
+          canvas-blanking bug, not a tuning problem. The far plane is pushed
+          out because the closing act pulls the camera back to z ~16.5 and the
+          old 15-unit fog end would have swallowed the whole graph. The range
+          is set against the widened opening framing (camera at z 12.4) and
+          the lattice field, which needs to genuinely dissolve into the
+          background rather than end at a visible edge. */}
+      <fog attach="fog" args={["#05070a", 14, 44]} />
+      <ambientLight intensity={reducedMotion ? 0.7 : 0.45} />
+      <pointLight position={[5, 5, 5]} intensity={30} color="#4fd1c5" />
+      <pointLight position={[-6, -3, 2]} intensity={12} color="#FF6B35" />
 
-      <ScrollCamera reducedMotion={reducedMotion} scrollProgressRef={scrollProgressRef} />
-      <Constellation reducedMotion={reducedMotion} dense={dense} scrollProgressRef={scrollProgressRef} />
+      {settings.physicalNodes && (
+        <Suspense fallback={null}>
+          <StageEnvironment />
+        </Suspense>
+      )}
+
+      {reducedMotion && <StaticFramePump />}
+
+      <CameraRig reducedMotion={reducedMotion} stageRef={stageRef} />
+      <Constellation
+        reducedMotion={reducedMotion}
+        dense={dense}
+        physical={settings.physicalNodes}
+        halo={settings.halo}
+        stageRef={stageRef}
+      />
       <AmbientField count={settings.particles} reducedMotion={reducedMotion} />
-      <CameraParallax reducedMotion={reducedMotion} />
+      <DaughterGlobes
+        count={settings.swarm}
+        reducedMotion={reducedMotion}
+        stageRef={stageRef}
+      />
+      <TimeCorridor reducedMotion={reducedMotion} stageRef={stageRef} />
+
+      {/* Callouts require a travelling camera to point at anything meaningful,
+          and a full-page stage to have a section to belong to. */}
+      {settings.fullPageStage && !reducedMotion && (
+        <AnnotationLayer
+          anchors={anchors}
+          stageRef={stageRef}
+          overlayRef={annotationRef}
+        />
+      )}
 
       {settings.postFx && (
         <Suspense fallback={null}>
-          <EffectComposer multisampling={0}>
-            <Bloom
-              intensity={0.85}
-              luminanceThreshold={0.18}
-              luminanceSmoothing={0.35}
-              mipmapBlur
-            />
-            <Noise premultiply opacity={0.035} />
-            <Vignette eskil={false} offset={0.25} darkness={0.9} />
-          </EffectComposer>
+          <EffectComposer multisampling={0}>{buildEffects(settings)}</EffectComposer>
         </Suspense>
       )}
     </Canvas>

@@ -4,10 +4,39 @@
 
 :root {
   color-scheme: dark;
+  /* Published by lib/scrollStore.ts on every scroll. Declaring them here
+     means the first paint has real values rather than falling back. */
+  --scrim: 0;
+  --hero-progress: 0;
 }
 
 html {
   scroll-behavior: smooth;
+  /* Slightly negative global tracking — the display sizes on this page are
+     large enough that default metrics read loose. */
+  letter-spacing: -0.011em;
+}
+
+/* Lenis smooth scroll. When Lenis is active it owns the scroll position, so
+   the browser's own `scroll-behavior: smooth` must stand down or the two
+   interpolators fight over anchor navigation. Lenis stamps these classes on
+   <html> itself; it is never constructed under reduced motion, so this whole
+   block is simply inert for those visitors. */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+.lenis.lenis-smooth iframe {
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -27,6 +56,9 @@ html {
 body {
   background-color: #05070a;
   color: #e8ecf1;
+  /* The fixed WebGL stage is the page background; nothing should be able to
+     rubber-band past it and reveal the raw viewport edge. */
+  overscroll-behavior-y: none;
 }
 
 ::selection {
@@ -43,4 +75,101 @@ body {
 code,
 pre {
   font-variant-ligatures: none;
+  letter-spacing: 0;
+}
+
+/* --------------------------------------------------------------------------
+   Card spotlight — see components/useSpotlight.ts.
+
+   Two stacked layers driven by the same --spot-x/--spot-y pair: a soft teal
+   wash inside the card, and a masked border highlight so the card's own edge
+   lights up only where the cursor is near it.
+   -------------------------------------------------------------------------- */
+.spotlight {
+  position: relative;
+  isolation: isolate;
+}
+
+.spotlight::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 400ms ease-out;
+  background: radial-gradient(
+    260px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    rgba(79, 209, 197, 0.1),
+    transparent 62%
+  );
+}
+
+.spotlight:hover::before,
+.spotlight:focus-within::before {
+  opacity: 1;
+}
+
+.spotlight::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 400ms ease-out;
+  border: 1px solid rgba(79, 209, 197, 0.55);
+  border-radius: inherit;
+  /* Reveal the border only in a disc around the cursor. */
+  -webkit-mask-image: radial-gradient(
+    180px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    #000 0%,
+    transparent 70%
+  );
+  mask-image: radial-gradient(
+    180px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    #000 0%,
+    transparent 70%
+  );
+}
+
+.spotlight:hover::after,
+.spotlight:focus-within::after {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spotlight::before,
+  .spotlight::after {
+    display: none;
+  }
+}
+
+/* Hero scroll cue — a light travelling down a hairline rule. */
+@keyframes scroll-cue {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(250%);
+    opacity: 0;
+  }
+}
+
+.scroll-cue {
+  animation: scroll-cue 2.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-cue {
+    animation: none;
+    transform: none;
+    opacity: 1;
+  }
 }
