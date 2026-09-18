@@ -150,7 +150,21 @@ describe.runIf(Boolean(process.env.LOOPMEM_TEST_BIN))("real LoopMem shared-memor
       const options = { executable: process.env.LOOPMEM_TEST_BIN!, storeRoot: root };
       const first = new LoopMemClient(options);
       const second = new LoopMemClient(options);
-      await first.initialize("repo-one", "Share durable facts across sessions");
+      const server = createMcpServer({ daemonUrl: "http://127.0.0.1:8787", token: null, tokenSource: "none", loopmem: options });
+      const mcp = new Client({ name: "memory-success-test", version: "1.0.0" });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      try {
+        await server.connect(serverTransport);
+        await mcp.connect(clientTransport);
+        const initialized = await mcp.callTool({ name: "gitamesh_memory_init", arguments: {
+          repositoryId: "repo-one", goal: "Share durable facts across sessions",
+        } });
+        expect(initialized.isError).toBe(false);
+        expect(initialized.structuredContent).toMatchObject({ ok: true, store: { namespace: memoryNamespace("repo-one") } });
+      } finally {
+        await mcp.close();
+        await server.close();
+      }
       const remembered = await first.remember("repo-one", { agentId: "agent-a", workspaceSessionId: "session-a", kind: "decision", text: "Use saved records" });
       expect((await second.recall("repo-one")).memories).toEqual([remembered]);
       const updated = await second.remember("repo-one", { agentId: "agent-b", workspaceSessionId: "session-b", kind: "decision", text: "Use reviewed saved records", supersedes: remembered.id });
@@ -183,6 +197,7 @@ describe("MCP memory tool registration", () => {
         "gitamesh_memory_get", "gitamesh_memory_context",
       ]));
       const result = await client.callTool({ name: "gitamesh_memory_recall", arguments: { repositoryId: "repo-one" } });
+      expect(result.isError).toBe(true);
       expect(result.structuredContent).toMatchObject({ ok: false, error: {
         type: "https://gitamesh.dev/mcp-problems/loopmem-disabled",
       } });

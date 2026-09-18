@@ -32,6 +32,7 @@ import { WatchEventsInputSchema, handleWatchEvents } from "./tools/watch-events.
  */
 function toCallToolResult(payload: Record<string, unknown>): CallToolResult {
   return {
+    isError: payload.ok === false,
     structuredContent: payload,
     content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
   };
