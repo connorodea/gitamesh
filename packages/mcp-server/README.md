@@ -238,7 +238,7 @@ client configuration. The existing coordination tools work without LoopMem.
 | --- | --- |
 | `gitamesh_memory_init` | Initialize once with `repositoryId` and an optional `goal`. |
 | `gitamesh_memory_remember` | Save `kind`, `text`, `agentId`, and `workspaceSessionId`; optionally add evidence, supersedes, taskId, or attemptId. |
-| `gitamesh_memory_recall` | Read matching memory; optional query, kind, agentId, workspaceSessionId, includeSuperseded, and limit (1–500). |
+| `gitamesh_memory_recall` | Read matching memory; optional query, kind, agentId, workspaceSessionId, includeSuperseded, beforeId, and limit (1–500). |
 | `gitamesh_memory_get` | Read a complete memory with `repositoryId` and `id`. |
 | `gitamesh_memory_context` | Build bounded Markdown context from saved memory. |
 
@@ -262,6 +262,25 @@ references are saved as `gitamesh:task:ID` and `gitamesh:attempt:ID` evidence.
 Evidence remains an unverified reference. Initialization does not create a memory
 entry. Reads support legacy entries with absent or null provenance.
 
+Recall returns newest records first. A page contains at most `limit` records
+(default 50), and LoopMem caps the complete pretty-printed CLI JSON response at
+1,000,000 UTF-8 bytes including its final newline. This keeps recall below the
+bridge's existing 1 MiB child-output limit. Byte limits can produce a shorter
+page even when the record count is below `limit`.
+
+When `has_more` is true, use the final returned memory's `id` as the next call's
+`beforeId`, with the same filters. `beforeId` must be a positive JavaScript-safe
+integer. It is an exclusive bound: only IDs below it can appear in that page.
+`total_matches` counts matching records below the current cursor, before page
+limits. Stop when `has_more` is false. The response keeps its existing
+`namespace`, `memories`, `total_matches`, and `has_more` fields.
+
+Each page reads current memory; paging is not a snapshot. Newer appends cannot
+enter subsequent pages because their IDs are above the cursor. A correction
+between requests can remove a superseded entry from later active-only pages;
+use `includeSuperseded` when the history itself is needed. Paging requires a
+LoopMem binary that supports `recall --before-id` and bounded recall responses.
+
 The bridge executes the CLI with an argument array, never a shell. Each command
 has a 10-second timeout and a 1 MiB limit for each output stream. CLI JSON is
 validated before it is returned. Failures use the existing structured `ok:false`
@@ -278,5 +297,6 @@ LOOPMEM_TEST_BIN=/absolute/path/to/loopmem pnpm --filter @gitamesh/mcp-server te
 ```
 
 It checks two agents sharing a repository namespace, explicit replacement,
-preserved provenance, and separation between repository namespaces. The regular
+preserved provenance, separation between repository namespaces, and complete
+paging of records that together exceed the child-output limit. The regular
 tests need no daemon, model, API key, or LoopMem installation.

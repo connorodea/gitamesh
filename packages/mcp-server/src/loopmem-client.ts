@@ -102,6 +102,7 @@ export interface RecallInput {
   agentId?: string;
   workspaceSessionId?: string;
   includeSuperseded?: boolean;
+  beforeId?: number;
   limit?: number;
 }
 
@@ -164,6 +165,7 @@ export class LoopMemClient {
     if (input.agentId !== undefined) args.push(`--agent=${input.agentId}`);
     if (input.workspaceSessionId !== undefined) args.push(`--session=${input.workspaceSessionId}`);
     if (input.includeSuperseded) args.push("--include-superseded");
+    if (input.beforeId !== undefined) args.push(`--before-id=${input.beforeId}`);
     if (input.limit !== undefined) args.push(`--limit=${input.limit}`);
     return this.json(repositoryId, args,
       RecallSchema.refine((record) => record.namespace === memoryNamespace(repositoryId)));

@@ -194,7 +194,7 @@ export function createMcpServer(config: GitameshMcpConfig): McpServer {
     "gitamesh_memory_recall",
     {
       title: "Recall shared memory",
-      description: "Read shared repository memory when a session starts or before repeating work. All agents and worktrees using the same repositoryId read the same namespace. Optional text, kind, agent, and session filters; no model call.",
+      description: "Read shared repository memory when a session starts or before repeating work. All agents and worktrees using the same repositoryId read the same namespace. Optional text, kind, agent, and session filters. If has_more is true, pass the final returned memory ID as beforeId to read the next page. Each page reads current memory; no model call.",
       inputSchema: MemoryRecallInputSchema.shape,
     },
     async (input) => toCallToolResult(await handleMemoryRecall(input, memoryClient)),
