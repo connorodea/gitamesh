@@ -1,6 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { DaemonClient } from "./internal-client.js";
+import { LoopMemClient } from "./loopmem-client.js";
+import {
+  MemoryInitInputSchema, handleMemoryInit,
+  MemoryRememberInputSchema, handleMemoryRemember,
+  MemoryRecallInputSchema, handleMemoryRecall,
+  MemoryGetInputSchema, handleMemoryGet,
+  MemoryContextInputSchema, handleMemoryContext,
+} from "./tools/memory.js";
 import type { GitameshMcpConfig } from "./config.js";
 
 import { StatusInputSchema, handleStatus } from "./tools/status.js";
@@ -31,6 +39,7 @@ function toCallToolResult(payload: Record<string, unknown>): CallToolResult {
 
 export function createMcpServer(config: GitameshMcpConfig): McpServer {
   const client = new DaemonClient({ baseUrl: config.daemonUrl, token: config.token });
+  const memoryClient = config.loopmem ? new LoopMemClient(config.loopmem) : undefined;
 
   const server = new McpServer({
     name: "gitamesh-mcp-server",
@@ -158,6 +167,56 @@ export function createMcpServer(config: GitameshMcpConfig): McpServer {
       inputSchema: WatchEventsInputSchema.shape,
     },
     async (input) => toCallToolResult(await handleWatchEvents(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_memory_init",
+    {
+      title: "Initialize shared memory",
+      description: "Initialize a repository memory namespace once. Requires GITAMESH_LOOPMEM_STORE. Use the same repositoryId across agents and worktrees; use recall or context when each session starts.",
+      inputSchema: MemoryInitInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleMemoryInit(input, memoryClient)),
+  );
+
+  server.registerTool(
+    "gitamesh_memory_remember",
+    {
+      title: "Save shared memory",
+      description: "Save a durable fact, decision, constraint, failure, or next action before compaction or session end. Requires agentId and workspaceSessionId provenance. This explicit call does not capture conversations automatically or change task claims.",
+      inputSchema: MemoryRememberInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleMemoryRemember(input, memoryClient)),
+  );
+
+  server.registerTool(
+    "gitamesh_memory_recall",
+    {
+      title: "Recall shared memory",
+      description: "Read shared repository memory when a session starts or before repeating work. All agents and worktrees using the same repositoryId read the same namespace. Optional text, kind, agent, and session filters; no model call.",
+      inputSchema: MemoryRecallInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleMemoryRecall(input, memoryClient)),
+  );
+
+  server.registerTool(
+    "gitamesh_memory_get",
+    {
+      title: "Read one shared memory",
+      description: "Read one complete memory by repositoryId and memory ID, including provenance and superseded records. Evidence references are not proof that a claim is true.",
+      inputSchema: MemoryGetInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleMemoryGet(input, memoryClient)),
+  );
+
+  server.registerTool(
+    "gitamesh_memory_context",
+    {
+      title: "Build shared memory context",
+      description: "Build a bounded context packet from stored repository memory for a new session or after saving memory before compaction. Does not erase history or compact a model session.",
+      inputSchema: MemoryContextInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleMemoryContext(input, memoryClient)),
   );
 
   return server;

@@ -217,3 +217,66 @@ mode" to build here.
   `src/internal-client.ts` is intentionally minimal (no retries, no
   pagination helpers, no schema-generation tooling) — just enough to make
   these tools work and be tested. It is not a general-purpose SDK.
+
+
+## Shared memory with LoopMem
+
+The optional LoopMem bridge exposes provider-neutral memory to any agent that
+uses this MCP server. Install LoopMem 0.3 or later and set these environment
+variables on the Gitamesh MCP process:
+
+```sh
+GITAMESH_LOOPMEM_BIN=/absolute/path/to/loopmem
+GITAMESH_LOOPMEM_STORE=/absolute/path/to/shared-memory
+```
+
+`GITAMESH_LOOPMEM_BIN` defaults to `loopmem` on PATH. Memory stays disabled until
+`GITAMESH_LOOPMEM_STORE` is set to an absolute path. The bridge does not alter
+client configuration. The existing coordination tools work without LoopMem.
+
+| Tool | Use |
+| --- | --- |
+| `gitamesh_memory_init` | Initialize once with `repositoryId` and an optional `goal`. |
+| `gitamesh_memory_remember` | Save `kind`, `text`, `agentId`, and `workspaceSessionId`; optionally add evidence, supersedes, taskId, or attemptId. |
+| `gitamesh_memory_recall` | Read matching memory; optional query, kind, agentId, workspaceSessionId, includeSuperseded, and limit (1–500). |
+| `gitamesh_memory_get` | Read a complete memory with `repositoryId` and `id`. |
+| `gitamesh_memory_context` | Build bounded Markdown context from saved memory. |
+
+Use `init` once, then `recall` or `context` at each session start. Use `remember`
+to save durable facts, decisions, constraints, failed approaches, and next steps
+before compaction or session end. Other agents read those entries using the same
+`repositoryId`. Calls are explicit: the bridge does not capture conversations,
+invoke models, compact a host session, or change Gitamesh task claims and leases.
+
+The namespace is `repo-` followed by the SHA-256 hex digest of the exact UTF-8
+`repositoryId`. This safely supports arbitrary repository IDs and remains stable
+across worktrees and sessions. It does not use the current directory. Use the
+same shared store path across MCP processes on a host. Access from another host
+requires a separately supported shared service; this local bridge does not sync
+files or make a network filesystem safe. Repository namespaces separate records;
+they are not an authorization boundary between clients that can use this server.
+
+Every memory write records agent and session provenance. Agent and session labels
+must contain 1–256 UTF-8 bytes and no control characters. Optional task/attempt
+references are saved as `gitamesh:task:ID` and `gitamesh:attempt:ID` evidence.
+Evidence remains an unverified reference. Initialization does not create a memory
+entry. Reads support legacy entries with absent or null provenance.
+
+The bridge executes the CLI with an argument array, never a shell. Each command
+has a 10-second timeout and a 1 MiB limit for each output stream. CLI JSON is
+validated before it is returned. Failures use the existing structured `ok:false`
+envelope. An already superseded replacement returns `loopmem-memory-conflict` and
+instructs the caller to recall current memory before replacing it. Raw command arguments and child stderr are not echoed in errors. No
+automatic retry occurs, so a write that times out has an unknown outcome: inspect
+memory before repeating it. Context returns Markdown unchanged within that output
+limit; LoopMem's own context budget governs content selection.
+
+Run the optional real-binary integration test after building LoopMem:
+
+```sh
+LOOPMEM_TEST_BIN=/absolute/path/to/loopmem pnpm --filter @gitamesh/mcp-server test
+```
+
+It checks two agents sharing a repository namespace, explicit replacement,
+preserved provenance, and separation between repository namespaces. The regular
+tests need no daemon, model, API key, or LoopMem installation.

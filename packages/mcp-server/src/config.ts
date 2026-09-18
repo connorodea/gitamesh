@@ -46,6 +46,8 @@ export const TOKEN_ENV_VAR = "GITAMESH_TOKEN";
 export const DEFAULT_DAEMON_URL = "http://127.0.0.1:8787";
 
 export interface GitameshMcpConfig {
+  /** Explicit shared memory configuration; absent means no memory subprocesses. */
+  loopmem?: { executable: string; storeRoot: string };
   daemonUrl: string;
   token: string | null;
   tokenSource: "env" | "config" | "none";
@@ -107,6 +109,16 @@ export async function resolveConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<GitameshMcpConfig> {
   const fileConfig = await loadConfigFile(cwd);
+  const storeRoot = env.GITAMESH_LOOPMEM_STORE;
+  let memoryConfig: Pick<GitameshMcpConfig, "loopmem"> = {};
+  if (storeRoot !== undefined && storeRoot !== "") {
+    if (!path.isAbsolute(storeRoot)) {
+      throw new Error("GITAMESH_LOOPMEM_STORE must be an absolute shared store path.");
+    }
+    const executable = env.GITAMESH_LOOPMEM_BIN ?? "loopmem";
+    if (!executable.trim()) throw new Error("GITAMESH_LOOPMEM_BIN must not be blank.");
+    memoryConfig = { loopmem: { executable, storeRoot: path.resolve(storeRoot) } };
+  }
 
   const daemonUrl =
     env[DAEMON_URL_ENV_VAR] ??
@@ -116,10 +128,10 @@ export async function resolveConfig(
 
   const envToken = env[TOKEN_ENV_VAR];
   if (envToken && envToken.length > 0) {
-    return { daemonUrl, token: envToken, tokenSource: "env" };
+    return { daemonUrl, token: envToken, tokenSource: "env", ...memoryConfig };
   }
   if (fileConfig?.token && fileConfig.token.length > 0) {
-    return { daemonUrl, token: fileConfig.token, tokenSource: "config" };
+    return { daemonUrl, token: fileConfig.token, tokenSource: "config", ...memoryConfig };
   }
-  return { daemonUrl, token: null, tokenSource: "none" };
+  return { daemonUrl, token: null, tokenSource: "none", ...memoryConfig };
 }
