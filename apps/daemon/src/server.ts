@@ -1,3 +1,4 @@
+import { registerCheckinRoutes } from "./routes/checkins.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocketPlugin from "@fastify/websocket";
 import { CoordinationEngine } from "@gitamesh/core";
@@ -94,6 +95,7 @@ export function buildServer(options: BuildServerOptions): BuiltServer {
     registerTaskRoutes(app, storage, engine, broadcaster, metrics, rateLimiter);
     registerClaimRoutes(app, storage, broadcaster, rateLimiter);
     registerEventRoutes(app, storage, broadcaster);
+    registerCheckinRoutes(app, storage, broadcaster, rateLimiter);
   });
 
   const sweepExpiredLeases = () => {
