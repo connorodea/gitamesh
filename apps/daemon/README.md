@@ -168,8 +168,10 @@ Problem Details](https://www.rfc-editor.org/rfc/rfc9457) with
 | `GET /v1/agents` | `repository:read` | Lists all agents. (No dedicated `agent:read` scope exists in the spec's scope list — `repository:read` doubles as the general read scope for agents/claims listing; documented here rather than invented silently.) |
 | `POST /v1/agents/:agentId/heartbeat` | `agent:heartbeat` | Advances agent status to `online`; naturally idempotent (repeating it just re-stamps `last_heartbeat_at`). |
 | `POST /v1/tasks` | `task:create` | Creates a task. Idempotency-Key aware. |
-| `GET /v1/tasks` | `task:read` | Optional `?repositoryId=` / `?status=` filters. |
-| `GET /v1/tasks/:taskId` | `task:read` | 404 problem-details if missing. |
+| `GET /v1/tasks` | `task:read` | Optional `?repositoryId=` / `?status=` / `?agentId=` (tasks that agent holds) / `?unclaimed=true` filters. Each task carries `owner` (`{agent_id, display_name, attempt_id, heartbeat_at, expires_at}` or null), `readiness` (`ready`/`blocked`, null once not waiting) and `blocked_by`. |
+| `GET /v1/tasks/:taskId` | `task:read` | Returns `{ task, notes, revisions }`. 404 problem-details if missing. |
+| `PATCH /v1/tasks/:taskId` | `task:create` | Body (snake_case, strict): any of `title`, `description`, `priority`, `branch`, `base_sha`, `dependencies`, plus optional `updated_by` (agent id). Writes one append-only revision (`changed_by`, `changed_at`, `changes: {field: {old, new}}`) when something changed; returns `revision: null` otherwise. `dependencies` may change only while the task is pending/queued/blocked. |
+| `POST /v1/tasks/:taskId/notes` | `task:claim` | Body: `{ agent_id, body }`. Append-only progress note. |
 | `POST /v1/tasks/:taskId/claim` | `task:claim` | Body: `{ agentId, workspaceSessionId, requiredResources: [{resourceType, resourceKey, mode}] }`. Returns the attempt + fencing token, or a 409 problem-details conflict. Idempotency-Key threads straight into `CoordinationEngine.claimTask`'s own `idempotencyKey`. |
 | `POST /v1/tasks/:taskId/heartbeat` | `task:claim` | Body: `{ attemptId, fencingToken, leaseDurationMs? }`. Reuses `task:claim` — the spec's scope list has no separate scope for it. |
 | `POST /v1/tasks/:taskId/complete` | `task:complete` | Body: `{ attemptId, fencingToken, result? }`. Idempotent via the attempt's own terminal-status check in `CoordinationEngine`. |
@@ -177,6 +179,13 @@ Problem Details](https://www.rfc-editor.org/rfc/rfc9457) with
 | `POST /v1/tasks/:taskId/cancel` | `task:complete` | Not an engine method — implemented directly in the daemon route (see "What's implemented directly in the daemon" below) inside a single `storage.transaction()`. Cancels the task and any of its still-active attempts/claims/leases. |
 | `GET /v1/claims` | `repository:read` | Optional `?repositoryId=` filter. Lists active (unreleased) resource claims. |
 | `POST /v1/claims/:claimId/release` | `admin` | Manual release — a governance escape hatch outside the normal complete/fail/expire lifecycle, so it's gated behind `admin` rather than a claim-specific scope (none exists). |
+| `POST /v1/messages` | `task:claim` | Body: `{ from, to, body, repository_id?, task_id? }`; `to` is an agent id or `"all"`. Append-only. |
+| `GET /v1/messages` | `task:read` | Filters: `?to=` (also returns messages to `all`), `?from=`, `?unread=true` (needs `to`), `?since=<iso>`, `?repositoryId=`, `?taskId=`. Oldest first. |
+| `POST /v1/messages/:messageId/ack` | `task:claim` | Body: `{ agent_id }`. Adds to `acked_by`; a repeat returns `already_acked: true`. 403 if the message is addressed to another agent. |
+| `POST /v1/locks` | `task:claim` | Body: `{ agent_id, repository_id, paths[], task_id?, ttl_seconds? }` (default 900, max 86400). All-or-nothing; 409 `path-lock-conflict` names the holder. |
+| `GET /v1/locks` | `repository:read` | Active (unreleased, unexpired) path locks. `?repositoryId=` / `?agentId=`. |
+| `POST /v1/locks/:lockId/heartbeat` | `task:claim` | Body: `{ agent_id, ttl_seconds? }`. Holder only. 409 once expired. |
+| `POST /v1/locks/:lockId/release` | `task:claim` | Body: `{ agent_id }`. Holder only. Sets `released_at`; the record stays. |
 | `GET /v1/events` | `events:read` | One-shot cursor page: `?since=<cursor>&repositoryId=&limit=`. Returns `{ events, nextCursor }`. |
 | `GET /v1/events/stream` | `events:read` | WebSocket. See below. |
 
@@ -189,6 +198,20 @@ mechanism. See `apps/daemon/src/idempotency.ts`.
 per token (hand-rolled sliding window, `apps/daemon/src/rate-limit.ts`
 — no dependency). Exceeding it returns `429` with a `Retry-After` header
 and an RFC 9457 body. Read-only (`GET`) routes are not rate-limited.
+
+### No delete routes
+
+Messages, message acks, task revisions and task notes are append-only, and
+no route deletes a message, task, note, revision or lock. The new routes
+reuse existing scopes (`task:claim` for an agent's own writes, `task:read`
+/ `repository:read` for reads, `task:create` for `PATCH`) so tokens minted
+before these routes existed keep working.
+
+`POST /v1/tasks` and `PATCH` reject a dependency that does not exist, is
+in another repository, is the task itself, or closes a cycle (422
+`invalid-dependencies`). `POST /v1/tasks/:taskId/claim` refuses a task
+whose dependencies have not met its `join_policy` (409
+`task-dependencies-incomplete`).
 
 ### What's implemented directly in the daemon vs. in `CoordinationEngine`
 

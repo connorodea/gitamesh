@@ -137,7 +137,62 @@ export class GitameshClient {
     return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/cancel`, { body });
   }
 
-  // --- resource claims / locks ----------------------------------------------
+  async updateTask(taskId: string, body: Record<string, unknown>): Promise<unknown> {
+    return this.request("PATCH", `/v1/tasks/${encodeURIComponent(taskId)}`, { body });
+  }
+
+  async addTaskNote(taskId: string, body: { agent_id: string; body: string }): Promise<unknown> {
+    return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/notes`, { body });
+  }
+
+  // --- messages -------------------------------------------------------------
+
+  async sendMessage(body: {
+    from: string;
+    to: string;
+    body: string;
+    repository_id?: string | null;
+    task_id?: string | null;
+  }): Promise<unknown> {
+    return this.request("POST", "/v1/messages", { body });
+  }
+
+  async listMessages(query?: ListQuery): Promise<unknown> {
+    return this.request("GET", "/v1/messages", { query });
+  }
+
+  async ackMessage(messageId: string, body: { agent_id: string }): Promise<unknown> {
+    return this.request("POST", `/v1/messages/${encodeURIComponent(messageId)}/ack`, { body });
+  }
+
+  // --- path locks -------------------------------------------------------------
+
+  async acquireLock(body: {
+    agent_id: string;
+    repository_id: string;
+    paths: string[];
+    task_id?: string | null;
+    ttl_seconds?: number;
+  }): Promise<unknown> {
+    return this.request("POST", "/v1/locks", { body });
+  }
+
+  async listLocks(query?: ListQuery): Promise<unknown> {
+    return this.request("GET", "/v1/locks", { query });
+  }
+
+  async heartbeatLock(
+    lockId: string,
+    body: { agent_id: string; ttl_seconds?: number },
+  ): Promise<unknown> {
+    return this.request("POST", `/v1/locks/${encodeURIComponent(lockId)}/heartbeat`, { body });
+  }
+
+  async releaseLock(lockId: string, body: { agent_id: string }): Promise<unknown> {
+    return this.request("POST", `/v1/locks/${encodeURIComponent(lockId)}/release`, { body });
+  }
+
+  // --- resource claims --------------------------------------------------------
 
   async listClaims(query?: ListQuery): Promise<unknown> {
     return this.request("GET", "/v1/claims", { query });
@@ -162,7 +217,7 @@ export class GitameshClient {
   }
 
   private async request<T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PATCH",
     path: string,
     opts: { body?: unknown; query?: ListQuery; auth?: boolean } = {},
   ): Promise<T> {

@@ -5,6 +5,11 @@ import type {
   Lease,
   EventEnvelope,
   Agent,
+  Message,
+  MessageAck,
+  TaskRevision,
+  TaskNote,
+  PathLock,
 } from "@gitamesh/protocol";
 import type {
   StorageAdapter,
@@ -254,6 +259,16 @@ export interface PostgresStorageOptions {
    */
   pglite?: boolean;
 }
+
+type MessageRow = {
+  message_id: string;
+  from_agent_id: string;
+  to_agent_id: string;
+  repository_id: string | null;
+  task_id: string | null;
+  body: string;
+  created_at: string;
+};
 
 /**
  * PostgreSQL implementation of `StorageAdapter`, for multi-process/
@@ -696,6 +711,162 @@ export class PostgresStorageAdapter implements StorageAdapter {
       [claimId],
     );
     return rows.length > 0;
+  }
+
+  // --- Attempts: daemon-facing listing (owner visibility) -----------------
+  listActiveAttempts(): TaskAttempt[] {
+    const rows = this.client.query<AttemptRow>(
+      `SELECT * FROM task_attempts WHERE status IN ('created','leased','running')`,
+    );
+    return rows.map(attemptFromRow);
+  }
+
+  // --- Messages (append-only) ----------------------------------------------
+  appendMessage(message: Message): void {
+    this.client.query(
+      `INSERT INTO messages (message_id, from_agent_id, to_agent_id, repository_id, task_id, body, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [
+        message.message_id,
+        message.from,
+        message.to,
+        message.repository_id,
+        message.task_id,
+        message.body,
+        message.created_at,
+      ],
+    );
+  }
+
+  getMessage(messageId: string): Message | undefined {
+    const rows = this.client.query<MessageRow>(
+      `SELECT * FROM messages WHERE message_id = $1`,
+      [messageId],
+    );
+    return rows[0] ? this.messageFromRow(rows[0]) : undefined;
+  }
+
+  listMessages(filter?: { repositoryId?: string; since?: string }): Message[] {
+    const clauses: string[] = [];
+    const args: string[] = [];
+    if (filter?.repositoryId) {
+      args.push(filter.repositoryId);
+      clauses.push(`repository_id = $${args.length}`);
+    }
+    if (filter?.since) {
+      args.push(filter.since);
+      clauses.push(`created_at > $${args.length}`);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.client.query<MessageRow>(
+      `SELECT * FROM messages ${where} ORDER BY created_at ASC, message_id ASC`,
+      args,
+    );
+    return rows.map((row) => this.messageFromRow(row));
+  }
+
+  ackMessage(messageId: string, agentId: string, ackedAtIso: string): boolean {
+    const rows = this.client.query<{ agent_id: string }>(
+      `INSERT INTO message_acks (message_id, agent_id, acked_at) VALUES ($1,$2,$3)
+       ON CONFLICT (message_id, agent_id) DO NOTHING RETURNING agent_id`,
+      [messageId, agentId, ackedAtIso],
+    );
+    return rows.length > 0;
+  }
+
+  private messageFromRow(row: MessageRow): Message {
+    const acks = this.client.query<MessageAck>(
+      `SELECT agent_id, acked_at FROM message_acks WHERE message_id = $1 ORDER BY acked_at ASC, agent_id ASC`,
+      [row.message_id],
+    );
+    return {
+      message_id: row.message_id,
+      from: row.from_agent_id,
+      to: row.to_agent_id,
+      repository_id: row.repository_id,
+      task_id: row.task_id,
+      body: row.body,
+      created_at: row.created_at,
+      acked_by: acks,
+    };
+  }
+
+  // --- Task history (append-only) ------------------------------------------
+  appendTaskRevision(revision: TaskRevision): void {
+    this.client.query(
+      `INSERT INTO task_revisions (revision_id, task_id, changed_by, changed_at, changes)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [
+        revision.revision_id,
+        revision.task_id,
+        revision.changed_by,
+        revision.changed_at,
+        JSON.stringify(revision.changes),
+      ],
+    );
+  }
+
+  listTaskRevisions(taskId: string): TaskRevision[] {
+    return this.client.query<TaskRevision>(
+      `SELECT * FROM task_revisions WHERE task_id = $1 ORDER BY changed_at ASC, revision_id ASC`,
+      [taskId],
+    );
+  }
+
+  appendTaskNote(note: TaskNote): void {
+    this.client.query(
+      `INSERT INTO task_notes (note_id, task_id, agent_id, body, created_at)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [note.note_id, note.task_id, note.agent_id, note.body, note.created_at],
+    );
+  }
+
+  listTaskNotes(taskId: string): TaskNote[] {
+    return this.client.query<TaskNote>(
+      `SELECT * FROM task_notes WHERE task_id = $1 ORDER BY created_at ASC, note_id ASC`,
+      [taskId],
+    );
+  }
+
+  // --- Path locks ------------------------------------------------------------
+  savePathLock(lock: PathLock): void {
+    this.client.query(
+      `INSERT INTO path_locks (lock_id, repository_id, agent_id, task_id, paths, acquired_at, heartbeat_at, expires_at, released_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (lock_id) DO UPDATE SET
+         heartbeat_at=excluded.heartbeat_at, expires_at=excluded.expires_at,
+         released_at=excluded.released_at`,
+      [
+        lock.lock_id,
+        lock.repository_id,
+        lock.agent_id,
+        lock.task_id,
+        JSON.stringify(lock.paths),
+        lock.acquired_at,
+        lock.heartbeat_at,
+        lock.expires_at,
+        lock.released_at,
+      ],
+    );
+  }
+
+  getPathLock(lockId: string): PathLock | undefined {
+    const rows = this.client.query<PathLock>(
+      `SELECT * FROM path_locks WHERE lock_id = $1`,
+      [lockId],
+    );
+    return rows[0];
+  }
+
+  listUnreleasedPathLocks(repositoryId?: string): PathLock[] {
+    return repositoryId
+      ? this.client.query<PathLock>(
+          `SELECT * FROM path_locks WHERE repository_id = $1 AND released_at IS NULL ORDER BY acquired_at ASC, lock_id ASC`,
+          [repositoryId],
+        )
+      : this.client.query<PathLock>(
+          `SELECT * FROM path_locks WHERE released_at IS NULL ORDER BY acquired_at ASC, lock_id ASC`,
+        );
   }
 
   // --- Tokens (daemon-only) -----------------------------------------------
