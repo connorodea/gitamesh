@@ -23,7 +23,7 @@ export function registerLockCommands(program: Command, deps: CliDeps): void {
     .option("--json", "machine-readable output", false)
     .action(async (options: { repositoryId?: string; json: boolean }) => {
       const { client } = await createClient(deps);
-      const result = (await client.listClaims({ repository_id: options.repositoryId })) as {
+      const result = (await client.listClaims({ repositoryId: options.repositoryId })) as {
         claims?: ClaimRecord[];
       };
       const claims = result.claims ?? [];
