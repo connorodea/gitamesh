@@ -36,6 +36,27 @@ export interface PostgresWorkerInitOptions {
 let client: QueryableClient | undefined;
 
 /**
+ * The one embedded Postgres this worker ever boots (test-only path).
+ *
+ * `synckit` caches its worker per worker file, so every
+ * `PostgresStorageAdapter` in a process already shares this single worker
+ * thread and this single `client` slot. Booting a fresh PGlite (a WASM
+ * instance) per adapter and closing it on `end` meant a test file created
+ * and freed one WASM instance per test — and freeing WASM code from this
+ * worker thread is what crashed V8 on Node 24 / Linux
+ * (`Check failed: jit_page_->allocations_.erase(addr) == 1` in
+ * `ThreadIsolation::UnregisterWasmAllocation`), killing the vitest fork
+ * and surfacing as `ERR_IPC_CHANNEL_CLOSED` in CI.
+ *
+ * So the instance is booted once, kept for the life of the worker, and
+ * handed to each new adapter with an empty schema. It is never closed:
+ * it holds no file or socket, and the process exit reclaims it.
+ */
+let embedded: (QueryableClient & { exec(text: string): Promise<unknown> }) | undefined;
+
+const RESET_EMBEDDED_SQL = "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;";
+
+/**
  * A single, persistent connection (never a `pg.Pool`) is intentional: this
  * worker is the exclusive synchronous-RPC target for exactly one
  * `PostgresStorageAdapter` instance in the host process (see
@@ -55,8 +76,13 @@ runAsWorker(
       case "init": {
         const opts = args[0] as PostgresWorkerInitOptions;
         if (opts.pglite) {
-          const { PGlite } = await import("@electric-sql/pglite");
-          client = new PGlite() as unknown as QueryableClient;
+          if (embedded) {
+            await embedded.exec(RESET_EMBEDDED_SQL);
+          } else {
+            const { PGlite } = await import("@electric-sql/pglite");
+            embedded = new PGlite() as unknown as NonNullable<typeof embedded>;
+          }
+          client = embedded;
         } else {
           const { Client } = await import("pg");
           const pgClient = new Client({
@@ -89,6 +115,11 @@ runAsWorker(
         await client!.query("ROLLBACK");
         return "ok";
       case "end": {
+        if (client !== undefined && client === embedded) {
+          // Kept alive on purpose — see `embedded`.
+          client = undefined;
+          return "ok";
+        }
         const maybeCloseable = client as unknown as { end?: () => Promise<void>; close?: () => Promise<void> };
         await maybeCloseable?.end?.();
         await maybeCloseable?.close?.();

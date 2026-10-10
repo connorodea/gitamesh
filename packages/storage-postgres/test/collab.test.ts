@@ -1,6 +1,13 @@
+import { beforeAll } from "vitest";
 import { createEmbeddedPostgresStorageForTests } from "../src/index.js";
 import { runCollabStorageContract } from "../../core/test/support/collab-storage-contract.js";
 import { runRepositoryStorageContract } from "../../core/test/support/repository-storage-contract.js";
+
+// Boot the embedded Postgres before any test so its cold start is not
+// charged to the first test's timeout.
+beforeAll(() => {
+  createEmbeddedPostgresStorageForTests().close();
+}, 60_000);
 
 runCollabStorageContract("PostgresStorageAdapter (pglite)", () =>
   createEmbeddedPostgresStorageForTests(),
