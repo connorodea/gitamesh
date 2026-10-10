@@ -20,7 +20,7 @@
   "dependencies": {
     "@gitamesh/core": "workspace:*",
     "@gitamesh/protocol": "workspace:*",
-    "better-sqlite3": "^11.8.1"
+    "better-sqlite3": "^13.0.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
