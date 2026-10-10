@@ -12,9 +12,10 @@ import {
  * `PostgresStorageAdapter`, backed by an embedded in-process Postgres
  * (`@electric-sql/pglite`) instead of a real server — see this package's
  * README for why pglite was verified and adopted as the default test
- * backend. Every adapter created here is closed in `afterEach`. The
- * embedded Postgres itself is booted once per process and reset for each
- * new adapter (see `embedded` in `src/worker.ts`).
+ * backend. Every adapter created here is closed in `afterEach`. Embedded
+ * Postgres instances are never freed (that crashes V8 on Linux); a closed
+ * adapter's instance is reset and reused (see `idleEmbedded` in
+ * `src/worker.ts`).
  */
 
 let counter = 0;
@@ -334,5 +335,40 @@ describe("embedded test backend isolation", () => {
     const storage = freshStorage();
     storage.close();
     expect(() => storage.close()).not.toThrow();
+  });
+});
+
+describe("two live adapters in one process do not share state", () => {
+  it("each embedded adapter keeps its own data while the other is open", () => {
+    const a = freshStorage();
+    a.saveTask(buildTask({ task_id: "only_in_a" }));
+
+    const b = freshStorage();
+    expect(b.listTasks()).toEqual([]);
+    b.saveTask(buildTask({ task_id: "only_in_b" }));
+
+    expect(a.getTask("only_in_a")).toBeDefined();
+    expect(a.getTask("only_in_b")).toBeUndefined();
+    expect(b.getTask("only_in_a")).toBeUndefined();
+    expect(b.getTask("only_in_b")).toBeDefined();
+  });
+
+  it("closing one adapter leaves the other usable", () => {
+    const a = freshStorage();
+    const b = freshStorage();
+    a.saveTask(buildTask({ task_id: "kept" }));
+    b.close();
+    expect(a.getTask("kept")).toBeDefined();
+    a.saveTask(buildTask({ task_id: "kept_2" }));
+    expect(a.listTasks()).toHaveLength(2);
+  });
+
+  it("a closed adapter refuses further use instead of touching another's connection", () => {
+    const a = freshStorage();
+    const b = freshStorage();
+    a.close();
+    expect(() => a.getTask("x")).toThrow();
+    b.saveTask(buildTask({ task_id: "b_ok" }));
+    expect(b.getTask("b_ok")).toBeDefined();
   });
 });

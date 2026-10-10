@@ -277,7 +277,9 @@ type MessageRow = {
  * `storage-adapter.ts` doc comment). Every query is routed through a
  * persistent worker thread via `SyncPostgresClient` so this class can
  * offer the same synchronous method surface as `SqliteStorageAdapter` —
- * see `sync-client.ts` for why, and its cost.
+ * see `sync-client.ts` for why, and its cost. The worker thread is shared
+ * by every adapter in the process, but each adapter has its own database
+ * connection there, so adapters do not see each other's transactions.
  */
 export class PostgresStorageAdapter implements StorageAdapter {
   private readonly client = new SyncPostgresClient();

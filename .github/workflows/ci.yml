@@ -16,6 +16,24 @@ jobs:
   build-test:
     name: Typecheck, build, test
     runs-on: ubuntu-latest
+    # A throwaway server for packages/storage-postgres/test/real-postgres.test.ts,
+    # the only test that opens a real `pg` connection.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: gitamesh
+          POSTGRES_PASSWORD: gitamesh
+          POSTGRES_DB: gitamesh_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gitamesh"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      GITAMESH_TEST_POSTGRES_URL: postgresql://gitamesh:gitamesh@localhost:5432/gitamesh_test
     steps:
       - name: Checkout
         uses: actions/checkout@v4
