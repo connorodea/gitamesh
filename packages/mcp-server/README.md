@@ -78,12 +78,22 @@ CLI's default) to avoid that.
 | `gitamesh_status` | Daemon health plus this repository's open task and active-claim counts. Never returns `ok:false` for a merely-unreachable daemon — that IS the reported status. |
 | `gitamesh_register_agent` | Registers an agent runtime (`{ agentId?, displayName, runtime, capabilities, namespaceId? }`). `agentId` is a caller hint stored as metadata — the daemon always assigns the real `agent_id` server-side; read it from the result. |
 | `gitamesh_create_task` | Creates a task in a repository's workflow. |
-| `gitamesh_list_tasks` | Lists tasks, optionally filtered by `repositoryId` and/or `status`. |
-| `gitamesh_claim_task` | Claims a task for an agent's workspace session, atomically acquiring any required resource locks. On conflict (already claimed / resource contention / not claimable) returns a **structured `ok:false` result**, never a thrown error. |
+| `gitamesh_list_tasks` | Lists tasks with `owner` (who holds each, last heartbeat), `readiness` (`ready`/`blocked`) and `blocked_by`. Filters: `repositoryId`, `status`, `agentId` (tasks that agent holds), `unclaimed` (free to claim). |
+| `gitamesh_get_task` | One task with its owner, readiness, progress notes and revision history. |
+| `gitamesh_update_task` | Changes `title`, `description`, `priority`, `branch`, `baseSha` or `dependencies` (replaces the list; `[]` clears it). Each change writes an append-only revision; pass `agentId` so it names you. |
+| `gitamesh_add_task_note` | Appends a progress note (`{ taskId, agentId, body }`). |
+| `gitamesh_claim_task` | Claims a task for an agent's workspace session, atomically acquiring any required resource locks. On conflict (already claimed / resource contention / not claimable / dependencies not complete) returns a **structured `ok:false` result**, never a thrown error. |
 | `gitamesh_heartbeat` | Renews an in-progress attempt's lease via its fencing token. |
 | `gitamesh_complete_task` | Marks a claimed attempt (and its task) complete, releasing its resource claims. |
 | `gitamesh_fail_task` | Marks a claimed attempt failed; the task requeues unless the retry limit is exhausted. |
 | `gitamesh_list_claims` | Lists active (unreleased) resource claims, optionally filtered by `repositoryId`. |
+| `gitamesh_send_message` | Sends a message to one agent or to `"all"` (`{ from, to, body, repositoryId?, taskId? }`). Append-only. Use it instead of creating a task to talk to another agent. |
+| `gitamesh_list_messages` | Lists messages, oldest first. Inbox: `{ to: <me>, unread: true }` (includes messages to `"all"`). Other filters: `from`, `since`, `repositoryId`, `taskId`. |
+| `gitamesh_ack_message` | Marks a message read by an agent. A repeat returns `alreadyAcked: true`. |
+| `gitamesh_acquire_lock` | Locks repository paths/globs for an agent (`{ agentId, repositoryId, paths, taskId?, ttlSeconds? }`, default 900 s). An overlap with another agent's live lock returns `ok:false` (`path-lock-conflict`) naming the holder; nothing is locked. |
+| `gitamesh_list_locks` | Active path locks with holder and paths; optional `repositoryId` / `agentId`. |
+| `gitamesh_heartbeat_lock` | Renews a path lock you hold. An expired lock returns `ok:false`; acquire again. |
+| `gitamesh_release_lock` | Releases a path lock you hold. The record is kept. |
 | `gitamesh_enqueue_integration` | **Not supported yet.** `apps/daemon` has no integration-candidate lifecycle (`packages/core` has no state machine for it; `packages/protocol`'s `IntegrationState` enum is unconsumed by any route). This tool stays **registered** — so the gap is discoverable via MCP tool listing — and always returns `{ ok: true, supported: false, reason: "..." }` rather than calling a nonexistent endpoint or silently disappearing. |
 | `gitamesh_watch_events` | Returns up to `limit` events since cursor `since`, via the daemon's `GET /v1/events` — a request/response page, **not** a live subscription. See "Design notes" below for why. |
 
