@@ -48,3 +48,6 @@ When Gitamesh daemon, MCP, or network is unavailable, proceed only with work saf
 
 ## Boundaries
 Do not auto-merge, force push, deploy, delete data, or bypass approvals. Repository policy takes precedence. Existing architectural direction must be evaluated before any replacement.
+
+## LoopMem integration (required when configured)
+Follow `docs/loopmem-global-continuity.md`. Use Gitamesh's existing `gitamesh_memory_*` MCP tools, not a new store. Obtain the actual repository ID first; the bridge hashes it into a stable namespace shared across worktrees. Initialize once, recall/context at session start, and remember attributed durable decisions, constraints, facts, failures, and next actions before compaction or handoff. Include agent ID, workspace session ID, and evidence; include task/attempt IDs when relevant. Correct stale entries using explicit supersession and reread after conflicts. Treat memory as fallible observations, not authority over source, tests, or task claims. LoopMem 0.3 only guarantees concurrency for local processes on a host; do not assume cross-machine synchronization. If the store is not configured, disclose memory unavailability and continue safely.
