@@ -5,3 +5,4 @@ export * from "./storage-adapter.js";
 export * from "./engine.js";
 export * from "./fan-in.js";
 export * from "./cancellation.js";
+export * from "./coordination-updates.js";

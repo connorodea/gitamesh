@@ -150,6 +150,32 @@ export class GitameshClient {
     return this.request("POST", `/v1/claims/${encodeURIComponent(claimId)}/release`);
   }
 
+  // --- agent check-ins ------------------------------------------------------
+
+  async sendMessage(body: Record<string, unknown>, idempotencyKey?: string): Promise<unknown> {
+    return this.request("POST", "/v1/messages", { body, idempotencyKey });
+  }
+
+  async listMessages(query: ListQuery): Promise<unknown> {
+    return this.request("GET", "/v1/messages", { query });
+  }
+
+  async acknowledgeMessage(messageId: string, body: Record<string, unknown>): Promise<unknown> {
+    return this.request("POST", `/v1/messages/${encodeURIComponent(messageId)}/ack`, { body });
+  }
+
+  async reportProgress(taskId: string, body: Record<string, unknown>, idempotencyKey?: string): Promise<unknown> {
+    return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/progress`, { body, idempotencyKey });
+  }
+
+  async getProgress(taskId: string, query: ListQuery): Promise<unknown> {
+    return this.request("GET", `/v1/tasks/${encodeURIComponent(taskId)}/progress`, { query });
+  }
+
+  async setDependencies(taskId: string, body: Record<string, unknown>): Promise<unknown> {
+    return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/dependencies`, { body });
+  }
+
   // --- internals -------------------------------------------------------------
 
   private buildUrl(path: string, query?: ListQuery): string {
@@ -167,11 +193,12 @@ export class GitameshClient {
   private async request<T>(
     method: "GET" | "POST",
     path: string,
-    opts: { body?: unknown; query?: ListQuery; auth?: boolean } = {},
+    opts: { body?: unknown; query?: ListQuery; auth?: boolean; idempotencyKey?: string } = {},
   ): Promise<T> {
     const { body, query, auth = true } = opts;
     const url = this.buildUrl(path, query);
     const headers: Record<string, string> = { Accept: "application/json" };
+    if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;
     if (body !== undefined) {
       headers["Content-Type"] = "application/json";
     }

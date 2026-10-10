@@ -21,6 +21,7 @@ export const SCOPES = [
   "task:claim",
   "task:complete",
   "events:read",
+  "message:write",
   "admin",
 ] as const;
 export type Scope = (typeof SCOPES)[number];

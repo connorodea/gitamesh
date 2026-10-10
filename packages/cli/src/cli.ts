@@ -1,3 +1,4 @@
+import { registerCheckinCommands } from "./commands/checkins.js";
 import { Command } from "commander";
 
 import { registerAgentCommands } from "./commands/agent.js";
@@ -25,6 +26,7 @@ export function buildProgram(deps: CliDeps): Command {
   registerRepoCommands(program, deps);
   registerAgentCommands(program, deps);
   registerTaskCommands(program, deps);
+  registerCheckinCommands(program, deps);
   registerLockCommands(program, deps);
   registerStatusCommand(program, deps);
 

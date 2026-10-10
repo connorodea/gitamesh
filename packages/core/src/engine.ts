@@ -1,3 +1,4 @@
+import { assertDependenciesReady } from "./coordination-updates.js";
 import type {
   Task,
   TaskAttempt,
@@ -141,6 +142,8 @@ export class CoordinationEngine {
           currentStatus: task.status,
         });
       }
+
+      assertDependenciesReady(this.storage, task);
 
       const activeAttempts = this.storage.getActiveAttemptsForTask(
         task.task_id,
