@@ -14,6 +14,12 @@ import type { PostgresWorkerInitOptions } from "./worker.js";
  * every query; `createSyncFn` blocks the calling thread on
  * `Atomics.wait` until the worker's async round-trip resolves.
  *
+ * `synckit` caches its worker per worker file, so all clients in a process
+ * talk to the same worker thread. Each client therefore tags every call with
+ * its own connection id and the worker keeps a separate database connection
+ * per id (see `worker.ts`). Without that, a second adapter replaced the first
+ * one's connection and `close()` on either ended it for both.
+ *
  * This is not a novel hack — `synckit` is the same mechanism ESLint and
  * Prettier plugins use to call async formatters/linters synchronously, and
  * it was verified standalone (a plain async worker round-tripped through
@@ -28,9 +34,13 @@ import type { PostgresWorkerInitOptions } from "./worker.js";
  * each process gets its own worker and its own server-side connection,
  * and Postgres's own MVCC/locking arbitrates between them.
  */
+let nextConnectionId = 0;
+
 export class SyncPostgresClient {
+  private readonly id = ++nextConnectionId;
   private readonly syncFn: (
     action: "init" | "query" | "begin" | "commit" | "rollback" | "end",
+    id: number,
     ...args: unknown[]
   ) => unknown;
 
@@ -40,26 +50,26 @@ export class SyncPostgresClient {
   }
 
   init(opts: PostgresWorkerInitOptions): void {
-    this.syncFn("init", opts);
+    this.syncFn("init", this.id, opts);
   }
 
   query<Row = Record<string, unknown>>(sql: string, params?: unknown[]): Row[] {
-    return this.syncFn("query", sql, params) as Row[];
+    return this.syncFn("query", this.id, sql, params) as Row[];
   }
 
   begin(): void {
-    this.syncFn("begin");
+    this.syncFn("begin", this.id);
   }
 
   commit(): void {
-    this.syncFn("commit");
+    this.syncFn("commit", this.id);
   }
 
   rollback(): void {
-    this.syncFn("rollback");
+    this.syncFn("rollback", this.id);
   }
 
   close(): void {
-    this.syncFn("end");
+    this.syncFn("end", this.id);
   }
 }
