@@ -82,6 +82,18 @@ export class DaemonClient {
     return this.request("GET", "/healthz", { auth: false });
   }
 
+  // --- repositories ---------------------------------------------------------
+
+  registerRepository(
+    body: Record<string, unknown>,
+  ): Promise<DaemonResult<{ repository: unknown; replayed: boolean }>> {
+    return this.request("POST", "/v1/repositories", { body });
+  }
+
+  listRepositories(): Promise<DaemonResult<{ repositories: unknown[] }>> {
+    return this.request("GET", "/v1/repositories");
+  }
+
   // --- agents ---------------------------------------------------------------
 
   registerAgent(body: {

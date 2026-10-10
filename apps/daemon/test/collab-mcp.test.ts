@@ -14,6 +14,7 @@ import { handleCreateTask, CreateTaskInputSchema } from "../../../packages/mcp-s
 import { handleClaimTask, ClaimTaskInputSchema } from "../../../packages/mcp-server/src/tools/claim-task.js";
 import { handleListTasks, ListTasksInputSchema, ListTasksOutputSchema } from "../../../packages/mcp-server/src/tools/list-tasks.js";
 import { handleRegisterAgent, RegisterAgentInputSchema } from "../../../packages/mcp-server/src/tools/register-agent.js";
+import * as repositories from "../../../packages/mcp-server/src/tools/repositories.js";
 import { buildServer, type BuiltServer } from "../src/server.js";
 import { mintToken, SCOPES } from "../src/auth.js";
 
@@ -283,5 +284,50 @@ describe("MCP path locks", () => {
     expect(released.lock.released_at).not.toBeNull();
     const after = ok(await collab.handleListLocks(collab.ListLocksInputSchema.parse({}), client));
     expect(after.locks).toEqual([]);
+  });
+});
+
+describe("MCP repositories", () => {
+  it("register returns the record, a repeat is replayed, and list shows it once", async () => {
+    const input = repositories.RegisterRepositoryInputSchema.parse({
+      displayName: "juricratic",
+      gitCommonDir: "/repos/juricratic/.git",
+      defaultBranch: "main",
+      repositoryId: "local-id-1",
+    });
+
+    const first = ok(await repositories.handleRegisterRepository(input, client));
+    repositories.RegisterRepositoryOutputSchema.parse(first);
+    expect(first.replayed).toBe(false);
+    expect(first.repository).toMatchObject({
+      repository_id: "local-id-1",
+      display_name: "juricratic",
+      git_common_dir: "/repos/juricratic/.git",
+      default_branch: "main",
+      namespace_id: "default",
+    });
+
+    const again = ok(await repositories.handleRegisterRepository(input, client));
+    expect(again.replayed).toBe(true);
+    expect(again.repository.repository_id).toBe("local-id-1");
+
+    const listed = ok(
+      await repositories.handleListRepositories(repositories.ListRepositoriesInputSchema.parse({}), client),
+    );
+    repositories.ListRepositoriesOutputSchema.parse(listed);
+    expect(listed.repositories.map((r) => r.repository_id)).toEqual(["local-id-1"]);
+  });
+
+  it("without repositoryId the daemon assigns one and matches a repeat by gitCommonDir", async () => {
+    const input = repositories.RegisterRepositoryInputSchema.parse({
+      displayName: "other",
+      gitCommonDir: "/repos/other/.git",
+      defaultBranch: "main",
+    });
+    const first = ok(await repositories.handleRegisterRepository(input, client));
+    const again = ok(await repositories.handleRegisterRepository(input, client));
+
+    expect(first.repository.repository_id).toMatch(/^repo_/);
+    expect(again).toMatchObject({ replayed: true, repository: { repository_id: first.repository.repository_id } });
   });
 });

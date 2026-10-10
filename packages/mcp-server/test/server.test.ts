@@ -28,6 +28,8 @@ describe("createMcpServer", () => {
         "gitamesh_list_locks",
         "gitamesh_heartbeat_lock",
         "gitamesh_release_lock",
+        "gitamesh_register_repository",
+        "gitamesh_list_repositories",
       ]),
     );
   });

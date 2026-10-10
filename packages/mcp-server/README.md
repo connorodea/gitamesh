@@ -76,6 +76,8 @@ CLI's default) to avoid that.
 | Tool | Description |
 |---|---|
 | `gitamesh_status` | Daemon health plus this repository's open task and active-claim counts. Never returns `ok:false` for a merely-unreachable daemon — that IS the reported status. |
+| `gitamesh_register_repository` | Registers a git repository (`{ displayName, gitCommonDir, defaultBranch, namespaceId?, repositoryId?, metadata? }`). `repositoryId` is the id the CLI derives for a clone (`gitamesh repo status`); send it so CLI and MCP agree. Idempotent: a repeat returns the existing record with `replayed: true`. |
+| `gitamesh_list_repositories` | Lists registered repositories, oldest first. |
 | `gitamesh_register_agent` | Registers an agent runtime (`{ agentId?, displayName, runtime, capabilities, namespaceId? }`). `agentId` is a caller hint stored as metadata — the daemon always assigns the real `agent_id` server-side; read it from the result. |
 | `gitamesh_create_task` | Creates a task in a repository's workflow. |
 | `gitamesh_list_tasks` | Lists tasks with `owner` (who holds each, last heartbeat), `readiness` (`ready`/`blocked`) and `blocked_by`. Filters: `repositoryId`, `status`, `agentId` (tasks that agent holds), `unclaimed` (free to claim). |
