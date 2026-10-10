@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { Task } from "@gitamesh/protocol";
+import pg from "pg";
 import { createPostgresStorage, type PostgresStorageAdapter } from "../src/index.js";
 
 /**
@@ -81,5 +82,34 @@ describe.skipIf(!url)("PostgresStorageAdapter against a real server: one connect
     a.close();
     expect(() => a.getTask("anything")).toThrow();
     expect(b.listTasks({ repositoryId: `${run}_repo` })).toBeDefined();
+  });
+
+  it("a dropped connection fails that adapter's next call and leaves other adapters working", async () => {
+    const appName = `gm_${run}`;
+    const doomed = createPostgresStorage(
+      `${url!}${url!.includes("?") ? "&" : "?"}application_name=${appName}`,
+    );
+    open.push(doomed);
+    const survivor = connect();
+    doomed.saveTask(task("before_drop"));
+
+    const admin = new pg.Client({ connectionString: url });
+    await admin.connect();
+    try {
+      await admin.query(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = $1",
+        [appName],
+      );
+      // The server's FATAL arrives asynchronously; give it a moment.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    } finally {
+      await admin.end();
+    }
+
+    expect(() => doomed.getTask("x")).toThrow(/lost|terminat/i);
+    const t = task("after_drop");
+    survivor.saveTask(t);
+    expect(survivor.getTask(t.task_id)).toBeDefined();
+    expect(() => doomed.close()).not.toThrow();
   });
 });
