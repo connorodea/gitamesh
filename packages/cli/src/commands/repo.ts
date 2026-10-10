@@ -31,7 +31,7 @@ export function registerRepoCommands(program: Command, deps: CliDeps): void {
         });
       } catch (error) {
         throw new CliError(
-          `repo register failed: ${(error as Error).message}. Note: POST /v1/repositories may not exist yet on this daemon build — see this package's README.`,
+          `repo register failed: ${(error as Error).message}`,
         );
       }
 

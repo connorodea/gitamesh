@@ -9,6 +9,7 @@ import type {
   TaskRevision,
   TaskNote,
   PathLock,
+  Repository,
 } from "@gitamesh/protocol";
 
 /**
@@ -121,6 +122,16 @@ export interface StorageAdapter {
   ): { events: EventWithCursor[]; nextCursor: number };
   /** Current maximum event cursor, or 0 if no events exist yet. */
   latestEventCursor(): number;
+
+  // --- Repositories (daemon-facing; no delete) -----------------------------
+  getRepository(repositoryId: string): Repository | undefined;
+  /**
+   * Inserts or updates a repository. `created_at` and `namespace_id` are
+   * fixed by the first save; later saves cannot move them.
+   */
+  saveRepository(repository: Repository): void;
+  /** Every repository, oldest first (`created_at`, then `repository_id`). */
+  listRepositories(): Repository[];
 
   // --- Agents (daemon-facing) ---------------------------------------------
   getAgent(agentId: string): Agent | undefined;

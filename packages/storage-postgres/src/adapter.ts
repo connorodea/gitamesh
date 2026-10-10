@@ -10,6 +10,7 @@ import type {
   TaskRevision,
   TaskNote,
   PathLock,
+  Repository,
 } from "@gitamesh/protocol";
 import type {
   StorageAdapter,
@@ -614,6 +615,40 @@ export class PostgresStorageAdapter implements StorageAdapter {
       `SELECT COALESCE(MAX(cursor), 0) as m FROM events`,
     );
     return rows[0]?.m == null ? 0 : num(rows[0].m);
+  }
+
+  // --- Repositories (daemon-facing; no delete) -----------------------------
+  getRepository(repositoryId: string): Repository | undefined {
+    // The row is the entity as-is: `metadata` is JSONB and comes back parsed.
+    return this.client.query<Repository>(
+      `SELECT * FROM repositories WHERE repository_id = $1`,
+      [repositoryId],
+    )[0];
+  }
+
+  saveRepository(repository: Repository): void {
+    this.client.query(
+      `INSERT INTO repositories (repository_id, namespace_id, display_name, git_common_dir, default_branch, created_at, metadata)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (repository_id) DO UPDATE SET
+         display_name=excluded.display_name, git_common_dir=excluded.git_common_dir,
+         default_branch=excluded.default_branch, metadata=excluded.metadata`,
+      [
+        repository.repository_id,
+        repository.namespace_id,
+        repository.display_name,
+        repository.git_common_dir,
+        repository.default_branch,
+        repository.created_at,
+        JSON.stringify(repository.metadata),
+      ],
+    );
+  }
+
+  listRepositories(): Repository[] {
+    return this.client.query<Repository>(
+      `SELECT * FROM repositories ORDER BY created_at ASC, repository_id ASC`,
+    );
   }
 
   // --- Agents (daemon-facing) ---------------------------------------------
