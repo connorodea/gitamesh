@@ -34,6 +34,10 @@ import {
   HeartbeatLockInputSchema, handleHeartbeatLock,
   ReleaseLockInputSchema, handleReleaseLock,
 } from "./tools/collab.js";
+import {
+  RegisterRepositoryInputSchema, handleRegisterRepository,
+  ListRepositoriesInputSchema, handleListRepositories,
+} from "./tools/repositories.js";
 
 /**
  * Wraps any structured result (always a plain, schema-validated object —
@@ -291,6 +295,27 @@ export function createMcpServer(config: GitameshMcpConfig): McpServer {
       inputSchema: ReleaseLockInputSchema.shape,
     },
     async (input) => toCallToolResult(await handleReleaseLock(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_register_repository",
+    {
+      title: "Register repository",
+      description:
+        "Registers a git repository with the daemon and returns its repository_id. Safe to repeat: the same repositoryId (or the same namespace + gitCommonDir) returns the existing record with replayed: true.",
+      inputSchema: RegisterRepositoryInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleRegisterRepository(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_list_repositories",
+    {
+      title: "List repositories",
+      description: "Lists every repository registered with the daemon, oldest first.",
+      inputSchema: ListRepositoriesInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleListRepositories(input, client)),
   );
 
   server.registerTool(
