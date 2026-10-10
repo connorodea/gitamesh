@@ -1,6 +1,6 @@
 # Diagnostic only — never merge. Runs the storage-postgres tests many times
 # on the hosted Linux runner, once at the red main commit and once at the
-# PR #11 fix, to measure how often the vitest fork dies from the V8 fatal
+# PR #11 fix (and at main after its merge), to measure how often the vitest fork dies from the V8 fatal
 # `Check failed: jit_page_->allocations_.erase(addr) == 1`.
 name: Repro postgres fork crash
 
@@ -18,9 +18,11 @@ jobs:
       matrix:
         include:
           - label: main-01d5b19
-            ref: 01d5b19
+            ref: 01d5b19bb2bc20e7afa81d09644e7f68f8281fa9
           - label: pr11-9977fbd
             ref: 9977fbd4bef8c0f72270f83be53ca70242c09283
+          - label: main-91a2f24
+            ref: 91a2f24fa9499309657aefbf80ba68e533daddf2
     steps:
       - uses: actions/checkout@v4
         with:
