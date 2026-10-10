@@ -6,8 +6,7 @@
  * daemon is NOT uniform: create routes take snake_case, while
  * claim/heartbeat/complete/fail and the list filters take camelCase.
  * `apps/daemon/test/cli-contract.test.ts` runs this CLI against a real
- * in-memory daemon to keep the two in step. `/v1/repositories` does not
- * exist in the daemon yet, so `registerRepository` will 404.
+ * in-memory daemon to keep the two in step.
  *
  * `fetchImpl` is injectable so unit tests can supply a fake `fetch`
  * instead of hitting a real network / real daemon.

@@ -11,6 +11,7 @@ import type {
   TaskRevision,
   TaskNote,
   PathLock,
+  Repository,
 } from "@gitamesh/protocol";
 import type { StorageAdapter, StoredToken, EventWithCursor } from "@gitamesh/core";
 import { SCHEMA_SQL } from "./schema.js";
@@ -183,6 +184,12 @@ type AgentRow = {
   last_heartbeat_at: string | null;
   metadata: string;
 };
+
+type RepositoryRow = Omit<Repository, "metadata"> & { metadata: string };
+
+function repositoryFromRow(row: RepositoryRow): Repository {
+  return { ...row, metadata: JSON.parse(row.metadata) as Repository["metadata"] };
+}
 
 function agentFromRow(row: AgentRow): Agent {
   return {
@@ -546,6 +553,33 @@ export class SqliteStorageAdapter implements StorageAdapter {
       .prepare(`SELECT MAX(rowid) as m FROM events`)
       .get() as { m: number | null };
     return row.m ?? 0;
+  }
+
+  // --- Repositories (daemon-facing; no delete) -----------------------------
+  getRepository(repositoryId: string): Repository | undefined {
+    const row = this.db
+      .prepare(`SELECT * FROM repositories WHERE repository_id = ?`)
+      .get(repositoryId) as RepositoryRow | undefined;
+    return row ? repositoryFromRow(row) : undefined;
+  }
+
+  saveRepository(repository: Repository): void {
+    this.db
+      .prepare(
+        `INSERT INTO repositories (repository_id, namespace_id, display_name, git_common_dir, default_branch, created_at, metadata)
+         VALUES (@repository_id, @namespace_id, @display_name, @git_common_dir, @default_branch, @created_at, @metadata)
+         ON CONFLICT(repository_id) DO UPDATE SET
+           display_name=excluded.display_name, git_common_dir=excluded.git_common_dir,
+           default_branch=excluded.default_branch, metadata=excluded.metadata`,
+      )
+      .run({ ...repository, metadata: JSON.stringify(repository.metadata) });
+  }
+
+  listRepositories(): Repository[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM repositories ORDER BY created_at ASC, repository_id ASC`)
+      .all() as RepositoryRow[];
+    return rows.map(repositoryFromRow);
   }
 
   // --- Agents (daemon-facing; not part of the core StorageAdapter contract) ---

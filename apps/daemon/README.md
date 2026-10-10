@@ -167,6 +167,8 @@ Problem Details](https://www.rfc-editor.org/rfc/rfc9457) with
 | `POST /v1/agents` | `agent:register` | Registers an agent. Idempotency-Key aware. |
 | `GET /v1/agents` | `repository:read` | Lists all agents. (No dedicated `agent:read` scope exists in the spec's scope list — `repository:read` doubles as the general read scope for agents/claims listing; documented here rather than invented silently.) |
 | `POST /v1/agents/:agentId/heartbeat` | `agent:heartbeat` | Advances agent status to `online`; naturally idempotent (repeating it just re-stamps `last_heartbeat_at`). |
+| `POST /v1/repositories` | `repository:write` | Body: `{ display_name, git_common_dir, default_branch, namespace_id?, metadata? }`. Idempotent without an Idempotency-Key: a repository already registered under `metadata.local_repository_id` (else under the same `namespace_id` + `git_common_dir`) is returned unchanged with `200` and `replayed: true`; a new one returns `201`. `repository_id` is `metadata.local_repository_id` when sent, else generated. Emits `repository.registered`. |
+| `GET /v1/repositories` | `repository:read` | Lists all repositories, oldest first. There is no update or delete route. |
 | `POST /v1/tasks` | `task:create` | Creates a task. Idempotency-Key aware. |
 | `GET /v1/tasks` | `task:read` | Optional `?repositoryId=` / `?status=` / `?agentId=` (tasks that agent holds) / `?unclaimed=true` filters. Each task carries `owner` (`{agent_id, display_name, attempt_id, heartbeat_at, expires_at}` or null), `readiness` (`ready`/`blocked`, null once not waiting) and `blocked_by`. |
 | `GET /v1/tasks/:taskId` | `task:read` | Returns `{ task, notes, revisions }`. 404 problem-details if missing. |
@@ -255,8 +257,7 @@ section 12, simplified for this milestone:
   table — see `packages/storage-sqlite/src/schema.ts` or
   `packages/storage-postgres/src/schema.ts` depending on the active
   driver); the raw value is shown once.
-- Scopes: `repository:read`, `repository:write` (reserved, unused by any
-  route yet — no `/v1/repositories` routes exist), `agent:register`,
+- Scopes: `repository:read`, `repository:write`, `agent:register`,
   `agent:heartbeat`, `task:read`, `task:create`, `task:claim`,
   `task:complete`, `events:read`, `admin`. A token with `admin` satisfies
   every scope check.
@@ -339,10 +340,6 @@ section 12, simplified for this milestone:
   cost (each call blocks the daemon process's event loop for the
   round-trip, same as `better-sqlite3` already does today). Real
   concurrency across daemon processes still comes from Postgres itself.
-- **`/v1/repositories`** — no repository-registration route exists yet
-  (the CLI's `registerRepository` client method is written against the
-  documented shape but will 404 against this daemon; see
-  `packages/cli/src/client.ts`'s own note on this gap).
 - **Integration-candidate routes** — `packages/core` has no
   integration-candidate lifecycle support yet (only the
   `IntegrationState` enum exists in `packages/protocol`, unconsumed), so

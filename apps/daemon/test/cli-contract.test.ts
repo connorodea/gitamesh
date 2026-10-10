@@ -193,15 +193,28 @@ describe("gitamesh CLI <-> daemon request contract", () => {
     expect(result.errors.join("\n")).not.toContain("[");
   });
 
-  // Known gap, pinned so it cannot change silently: the daemon has no
-  // /v1/repositories route, so `repo register` cannot succeed yet.
-  it("repo register fails plainly while the daemon has no /v1/repositories route", async () => {
+  it("repo register is accepted and the repository is then listed by the daemon", async () => {
     const { execFileSync } = await import("node:child_process");
     execFileSync("git", ["init", "-q", "--initial-branch=main"], { cwd });
 
-    const result = await cli("repo", "register");
-    expect(result.code).toBe(1);
-    expect(result.errors[0]).toMatch(/^Error: repo register failed: POST \/v1\/repositories failed \(404\)/);
+    const { repository, replayed } = await cliJson<{
+      repository: { repository_id: string; display_name: string; default_branch: string; metadata: Record<string, unknown> };
+      replayed: boolean;
+    }>("repo", "register", "--display-name", "contract-repo");
+
+    expect(replayed).toBe(false);
+    expect(repository.display_name).toBe("contract-repo");
+    expect(repository.default_branch).toBe("main");
+    // The daemon keys the repository by the CLI's local id, the same id
+    // `repo status` prints and `task create --repository-id` takes.
+    const status = await cliJson<{ repository_id: string }>("repo", "status");
+    expect(repository.repository_id).toBe(status.repository_id);
+    expect(storage.listRepositories()).toEqual([repository]);
+
+    // Registering again is a replay, not a second repository.
+    const again = await cliJson<{ replayed: boolean }>("repo", "register");
+    expect(again.replayed).toBe(true);
+    expect(storage.listRepositories()).toHaveLength(1);
   });
 
   it("agent heartbeat is accepted", async () => {

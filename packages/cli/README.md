@@ -6,26 +6,13 @@ directly (no daemon required) for repository/worktree status.
 
 ## Coordination note — daemon route availability
 
-This package was built while `apps/daemon` was still under active,
-concurrent development in this same repository. As of this package's
-initial commit, `apps/daemon` has **only** committed:
-
-- `GET /healthz`, `GET /readyz`, `GET /metrics`
-- `POST /v1/agents`, `GET /v1/agents`, `POST /v1/agents/:agentId/heartbeat`
-
-It does **not yet** have `/v1/repositories`, `/v1/tasks*`, or
-`/v1/claims*`. This CLI's `repo register`, every `task *` subcommand, and
-every `lock *` subcommand are written against the **documented route
-shape** from the project's master spec (`POST /v1/repositories`,
-`POST /v1/tasks`, `GET /v1/tasks`, `GET /v1/tasks/:id`,
-`POST /v1/tasks/:id/{claim,heartbeat,complete,fail,cancel}`,
-`GET /v1/claims`, `POST /v1/claims/:id/release`) so the CLI compiles, and
-its argument-parsing/config/output-formatting logic is fully unit-tested
-today — but those commands will get a 404 (surfaced as a clear
-`GitameshClientError`, not a raw stack trace) against a daemon build that
-hasn't grown those routes yet. `gitamesh doctor` / `gitamesh status`
-report the daemon-reachability and token-validity checks that DO work
-today regardless.
+Every daemon-backed command (`repo register`, `agent *`, `task *`,
+`msg *`, `lock *`) has a matching route in `apps/daemon` — see the route
+table in `apps/daemon/README.md`. `apps/daemon/test/cli-contract.test.ts`
+runs this CLI against a real in-memory daemon to keep the two in step.
+`repo register` is idempotent: the daemon keys the repository by this
+clone's local id (the `repository_id` that `repo status` prints), and a
+second call returns the stored record with `replayed: true`.
 
 **Default daemon port**: `4477` (`http://127.0.0.1:4477`), chosen by this
 CLI as a placeholder since `apps/daemon` did not yet have a committed
