@@ -1,0 +1,49 @@
+# Diagnostic only — never merge. Runs the storage-postgres tests many times
+# on the hosted Linux runner, once at the red main commit and once at the
+# PR #11 fix, to measure how often the vitest fork dies from the V8 fatal
+# `Check failed: jit_page_->allocations_.erase(addr) == 1`.
+name: Repro postgres fork crash
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  stress:
+    name: stress ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: main-01d5b19
+            ref: 01d5b19
+          - label: pr11-9977fbd
+            ref: 9977fbd4bef8c0f72270f83be53ca70242c09283
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r build
+      - name: Run storage-postgres tests 25 times
+        run: |
+          node -v
+          pass=0; crash=0; other=0
+          for i in $(seq 1 25); do
+            if pnpm --filter @gitamesh/storage-postgres test > "run-$i.log" 2>&1; then
+              pass=$((pass+1)); echo "run $i: pass"
+            elif grep -q "allocations_.erase" "run-$i.log"; then
+              crash=$((crash+1)); echo "run $i: V8 FATAL"
+            else
+              other=$((other+1)); echo "run $i: other failure"; tail -40 "run-$i.log"
+            fi
+          done
+          echo "RESULT ${{ matrix.label }}: pass=$pass v8_fatal=$crash other=$other"
+          test "$crash" -eq 0 && test "$other" -eq 0
