@@ -109,7 +109,9 @@ export class DaemonClient {
     return this.request("GET", "/v1/tasks", { query });
   }
 
-  getTask(taskId: string): Promise<DaemonResult<{ task: unknown }>> {
+  getTask(
+    taskId: string,
+  ): Promise<DaemonResult<{ task: unknown; notes: unknown[]; revisions: unknown[] }>> {
     return this.request("GET", `/v1/tasks/${encodeURIComponent(taskId)}`);
   }
 
@@ -141,6 +143,58 @@ export class DaemonClient {
     body: Record<string, unknown>,
   ): Promise<DaemonResult<{ attempt: unknown; task: unknown; replayed: boolean }>> {
     return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/fail`, { body });
+  }
+
+  updateTask(
+    taskId: string,
+    body: Record<string, unknown>,
+  ): Promise<DaemonResult<{ task: unknown; revision: unknown }>> {
+    return this.request("PATCH", `/v1/tasks/${encodeURIComponent(taskId)}`, { body });
+  }
+
+  addTaskNote(
+    taskId: string,
+    body: { agent_id: string; body: string },
+  ): Promise<DaemonResult<{ note: unknown }>> {
+    return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/notes`, { body });
+  }
+
+  // --- messages -----------------------------------------------------------------
+
+  sendMessage(body: Record<string, unknown>): Promise<DaemonResult<{ message: unknown }>> {
+    return this.request("POST", "/v1/messages", { body });
+  }
+
+  listMessages(query?: ListQuery): Promise<DaemonResult<{ messages: unknown[] }>> {
+    return this.request("GET", "/v1/messages", { query });
+  }
+
+  ackMessage(
+    messageId: string,
+    body: { agent_id: string },
+  ): Promise<DaemonResult<{ message: unknown; already_acked: boolean }>> {
+    return this.request("POST", `/v1/messages/${encodeURIComponent(messageId)}/ack`, { body });
+  }
+
+  // --- path locks -----------------------------------------------------------------
+
+  acquireLock(body: Record<string, unknown>): Promise<DaemonResult<{ lock: unknown }>> {
+    return this.request("POST", "/v1/locks", { body });
+  }
+
+  listLocks(query?: ListQuery): Promise<DaemonResult<{ locks: unknown[] }>> {
+    return this.request("GET", "/v1/locks", { query });
+  }
+
+  heartbeatLock(
+    lockId: string,
+    body: { agent_id: string; ttl_seconds?: number },
+  ): Promise<DaemonResult<{ lock: unknown }>> {
+    return this.request("POST", `/v1/locks/${encodeURIComponent(lockId)}/heartbeat`, { body });
+  }
+
+  releaseLock(lockId: string, body: { agent_id: string }): Promise<DaemonResult<{ lock: unknown }>> {
+    return this.request("POST", `/v1/locks/${encodeURIComponent(lockId)}/release`, { body });
   }
 
   // --- claims -----------------------------------------------------------------
@@ -175,7 +229,7 @@ export class DaemonClient {
   }
 
   private async request<T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PATCH",
     path: string,
     opts: { body?: unknown; query?: ListQuery; auth?: boolean } = {},
   ): Promise<DaemonResult<T>> {

@@ -22,6 +22,18 @@ import { FailTaskInputSchema, handleFailTask } from "./tools/fail-task.js";
 import { ListClaimsInputSchema, handleListClaims } from "./tools/list-claims.js";
 import { EnqueueIntegrationInputSchema, handleEnqueueIntegration } from "./tools/enqueue-integration.js";
 import { WatchEventsInputSchema, handleWatchEvents } from "./tools/watch-events.js";
+import {
+  SendMessageInputSchema, handleSendMessage,
+  ListMessagesInputSchema, handleListMessages,
+  AckMessageInputSchema, handleAckMessage,
+  GetTaskInputSchema, handleGetTask,
+  UpdateTaskInputSchema, handleUpdateTask,
+  AddTaskNoteInputSchema, handleAddTaskNote,
+  AcquireLockInputSchema, handleAcquireLock,
+  ListLocksInputSchema, handleListLocks,
+  HeartbeatLockInputSchema, handleHeartbeatLock,
+  ReleaseLockInputSchema, handleReleaseLock,
+} from "./tools/collab.js";
 
 /**
  * Wraps any structured result (always a plain, schema-validated object —
@@ -83,7 +95,8 @@ export function createMcpServer(config: GitameshMcpConfig): McpServer {
     "gitamesh_list_tasks",
     {
       title: "List tasks",
-      description: "Lists tasks, optionally filtered by repository and/or status.",
+      description:
+        "Lists tasks with owner (who holds each, last heartbeat) and readiness (ready, or blocked by dependencies). Filters: repositoryId, status, agentId (tasks that agent holds), unclaimed (free to claim).",
       inputSchema: ListTasksInputSchema.shape,
     },
     async (input) => toCallToolResult(await handleListTasks(input, client)),
@@ -168,6 +181,116 @@ export function createMcpServer(config: GitameshMcpConfig): McpServer {
       inputSchema: WatchEventsInputSchema.shape,
     },
     async (input) => toCallToolResult(await handleWatchEvents(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_send_message",
+    {
+      title: "Send message",
+      description:
+        "Sends a message to one agent or to \"all\". Append-only: messages are never edited or deleted. Use this instead of creating a task to talk to another agent.",
+      inputSchema: SendMessageInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleSendMessage(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_list_messages",
+    {
+      title: "List messages",
+      description:
+        "Lists messages, oldest first. For your inbox pass to=<your agent id> and unread=true (includes messages sent to \"all\"). Read it when a session starts and before claiming work.",
+      inputSchema: ListMessagesInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleListMessages(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_ack_message",
+    {
+      title: "Acknowledge message",
+      description:
+        "Marks a message as read by an agent. Repeating it is harmless and returns alreadyAcked: true.",
+      inputSchema: AckMessageInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleAckMessage(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_get_task",
+    {
+      title: "Get task",
+      description:
+        "Reads one task with its owner (who holds it, last heartbeat), readiness, progress notes and revision history.",
+      inputSchema: GetTaskInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleGetTask(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_update_task",
+    {
+      title: "Update task",
+      description:
+        "Changes a task's title, description, priority, branch, base SHA or dependency list. Each change writes an append-only revision (who, when, old -> new). Pass agentId so the revision names you.",
+      inputSchema: UpdateTaskInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleUpdateTask(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_add_task_note",
+    {
+      title: "Add task note",
+      description:
+        "Appends a progress note to a task. Notes are shown by gitamesh_get_task and are never edited or deleted.",
+      inputSchema: AddTaskNoteInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleAddTaskNote(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_acquire_lock",
+    {
+      title: "Acquire path lock",
+      description:
+        "Locks repository paths or globs for an agent so no other agent edits them. Acquire before editing. An overlap with another agent's live lock returns ok:false and names the holder; nothing is locked. Expires after ttlSeconds unless heartbeated.",
+      inputSchema: AcquireLockInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleAcquireLock(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_list_locks",
+    {
+      title: "List path locks",
+      description:
+        "Lists active path locks with holder and paths, optionally for one repository or agent.",
+      inputSchema: ListLocksInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleListLocks(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_heartbeat_lock",
+    {
+      title: "Heartbeat path lock",
+      description:
+        "Renews a path lock you hold. An expired lock cannot be renewed; acquire it again.",
+      inputSchema: HeartbeatLockInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleHeartbeatLock(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_release_lock",
+    {
+      title: "Release path lock",
+      description:
+        "Releases a path lock you hold. The record is kept as history.",
+      inputSchema: ReleaseLockInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleReleaseLock(input, client)),
   );
 
   server.registerTool(
