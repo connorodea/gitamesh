@@ -64,10 +64,10 @@ gitamesh agent list [--json]
 gitamesh task create --workflow-id --repository-id --title [--description] [--priority] [--branch] [--base-sha] [--required-capability ...] [--idempotency-key] [--json]
 gitamesh task list [--repository-id] [--status] [--json]
 gitamesh task show <taskId> [--json]
-gitamesh task claim <taskId> --agent-id --workspace-session-id [--json]
-gitamesh task heartbeat <taskId> --attempt-id [--json]
-gitamesh task complete <taskId> --attempt-id [--json]
-gitamesh task fail <taskId> --attempt-id [--error] [--json]
+gitamesh task claim <taskId> --agent-id --workspace-session-id [--resource <type:mode:key> ...] [--json]
+gitamesh task heartbeat <taskId> --attempt-id --fencing-token [--json]
+gitamesh task complete <taskId> --attempt-id --fencing-token [--json]
+gitamesh task fail <taskId> --attempt-id --fencing-token --error [--json]
 gitamesh task cancel <taskId> [--reason] [--json]
 
 gitamesh lock list [--repository-id] [--json]
@@ -101,9 +101,11 @@ pnpm --filter @gitamesh/cli test                   # unit tests (mocked HTTP cli
   the `GitameshClient` HTTP layer itself (auth headers, JSON body
   encoding, query-param encoding, RFC 9457 problem-details surfacing,
   network-unreachable error messaging).
-- **NOT tested end-to-end against a real running daemon.** `apps/daemon`
-  did not have a runnable HTTP server committed at the time this package
-  was built (see the coordination note above), so no test in this
-  package starts a real daemon process and drives the CLI against it.
-  That gap should be closed once `apps/daemon` has a committed entry
-  point and the `/v1/repositories`, `/v1/tasks*`, `/v1/claims*` routes.
+- **Contract-tested against a real in-memory daemon** in
+  `apps/daemon/test/cli-contract.test.ts`: `task claim/heartbeat/complete/
+  fail/cancel/list`, `lock list`, and `agent heartbeat` run through the
+  daemon's actual request schemas. The mocked-`fetch` tests above cannot
+  catch a field-name mismatch with the daemon; that test can. `task claim`
+  prints the `attempt_id` and `fencing_token` that `heartbeat`/`complete`/
+  `fail` require. A claim only appears under `gitamesh status` -> claims
+  (and `lock list`) when it locks at least one `--resource`.

@@ -292,7 +292,7 @@ describe("gitamesh task", () => {
     });
   });
 
-  it("lists tasks with repository_id/status filters as query params", async () => {
+  it("lists tasks with repositoryId/status filters as query params", async () => {
     const sink = createFakeSink();
     const { fetchImpl, calls } = createFakeFetch({
       "GET /v1/tasks": { body: { tasks: [] } },
@@ -303,7 +303,7 @@ describe("gitamesh task", () => {
     );
     expect(code).toBe(0);
     const url = new URL(calls[0]!.url);
-    expect(url.searchParams.get("repository_id")).toBe("repo-1");
+    expect(url.searchParams.get("repositoryId")).toBe("repo-1");
     expect(url.searchParams.get("status")).toBe("pending");
   });
 
@@ -327,7 +327,125 @@ describe("gitamesh task", () => {
       { cwd: dir, env: { GITAMESH_TOKEN: "gm_x" }, sink, fetchImpl },
     );
     expect(code).toBe(0);
-    expect(calls[0]?.body).toEqual({ agent_id: "agent-1", workspace_session_id: "ws-1" });
+    // camelCase: the daemon's ClaimBody schema rejects agent_id/workspace_session_id.
+    expect(calls[0]?.body).toEqual({
+      agentId: "agent-1",
+      workspaceSessionId: "ws-1",
+      requiredResources: [],
+    });
+  });
+
+  it("maps repeatable --resource onto requiredResources, keeping colons in the key", async () => {
+    const sink = createFakeSink();
+    const { fetchImpl, calls } = createFakeFetch({
+      "POST /v1/tasks/task-1/claim": {
+        body: { attempt: { attempt_id: "attempt-1" }, fencingToken: 7 },
+      },
+    });
+    const code = await runCli(
+      [
+        "node", "gitamesh", "task", "claim", "task-1",
+        "--agent-id", "agent-1",
+        "--workspace-session-id", "ws-1",
+        "--resource", "path:write:src/app.ts",
+        "--resource", "custom:exclusive:db:migrations",
+      ],
+      { cwd: dir, env: { GITAMESH_TOKEN: "gm_x" }, sink, fetchImpl },
+    );
+    expect(code).toBe(0);
+    expect((calls[0]?.body as { requiredResources: unknown }).requiredResources).toEqual([
+      { resourceType: "path", mode: "write", resourceKey: "src/app.ts" },
+      { resourceType: "custom", mode: "exclusive", resourceKey: "db:migrations" },
+    ]);
+    expect(sink.logs.join("\n")).toContain("attempt_id=attempt-1 fencing_token=7");
+  });
+
+  it("rejects a malformed --resource before calling the daemon", async () => {
+    const sink = createFakeSink();
+    const { fetchImpl, calls } = createFakeFetch({});
+    const code = await runCli(
+      [
+        "node", "gitamesh", "task", "claim", "task-1",
+        "--agent-id", "agent-1",
+        "--workspace-session-id", "ws-1",
+        "--resource", "src/app.ts",
+      ],
+      { cwd: dir, env: { GITAMESH_TOKEN: "gm_x" }, sink, fetchImpl },
+    );
+    expect(code).toBe(1);
+    expect(calls).toHaveLength(0);
+    expect(sink.errors[0]).toContain("--resource must look like <type>:<mode>:<key>");
+  });
+
+  it.each([
+    ["heartbeat", [], { attemptId: "attempt-1", fencingToken: 7 }],
+    ["complete", [], { attemptId: "attempt-1", fencingToken: 7 }],
+    ["fail", ["--error", "boom"], { attemptId: "attempt-1", fencingToken: 7, error: "boom" }],
+  ] as const)("task %s sends attemptId + numeric fencingToken", async (verb, extra, body) => {
+    const sink = createFakeSink();
+    const { fetchImpl, calls } = createFakeFetch({
+      [`POST /v1/tasks/task-1/${verb}`]: { body: {} },
+    });
+    const code = await runCli(
+      [
+        "node", "gitamesh", "task", verb, "task-1",
+        "--attempt-id", "attempt-1",
+        "--fencing-token", "7",
+        ...extra,
+      ],
+      { cwd: dir, env: { GITAMESH_TOKEN: "gm_x" }, sink, fetchImpl },
+    );
+    expect(code).toBe(0);
+    expect(calls[0]?.body).toEqual(body);
+  });
+
+  it("rejects a non-integer --fencing-token before calling the daemon", async () => {
+    const sink = createFakeSink();
+    const { fetchImpl, calls } = createFakeFetch({});
+    const code = await runCli(
+      [
+        "node", "gitamesh", "task", "complete", "task-1",
+        "--attempt-id", "attempt-1",
+        "--fencing-token", "abc",
+      ],
+      { cwd: dir, env: { GITAMESH_TOKEN: "gm_x" }, sink, fetchImpl },
+    );
+    expect(code).toBe(1);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("puts the whole failure on the first line when the daemon rejects the body", async () => {
+    const sink = createFakeSink();
+    const { fetchImpl } = createFakeFetch({
+      "POST /v1/tasks/task-1/claim": {
+        status: 400,
+        body: {
+          title: "Invalid request body",
+          status: 400,
+          // The daemon sends zod's pretty-printed (multi-line) issue array.
+          detail: JSON.stringify(
+            [
+              { code: "invalid_type", path: ["agentId"], message: "Required" },
+              { code: "invalid_type", path: ["workspaceSessionId"], message: "Required" },
+            ],
+            null,
+            2,
+          ),
+        },
+      },
+    });
+    const code = await runCli(
+      [
+        "node", "gitamesh", "task", "claim", "task-1",
+        "--agent-id", "agent-1",
+        "--workspace-session-id", "ws-1",
+      ],
+      { cwd: dir, env: { GITAMESH_TOKEN: "gm_x" }, sink, fetchImpl },
+    );
+    expect(code).toBe(1);
+    expect(sink.errors).toEqual([
+      "Error: POST /v1/tasks/task-1/claim failed (400): Invalid request body — agentId: Required; workspaceSessionId: Required",
+    ]);
   });
 });
 

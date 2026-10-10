@@ -29,7 +29,7 @@ export function registerStatusCommand(program: Command, deps: CliDeps): void {
       if (daemonReachable && repositoryId) {
         const { client } = await createClient(deps);
         try {
-          const taskResult = (await client.listTasks({ repository_id: repositoryId })) as {
+          const taskResult = (await client.listTasks({ repositoryId })) as {
             tasks?: unknown[];
           };
           tasks = taskResult.tasks ?? [];
@@ -37,7 +37,7 @@ export function registerStatusCommand(program: Command, deps: CliDeps): void {
           tasks = [];
         }
         try {
-          const claimResult = (await client.listClaims({ repository_id: repositoryId })) as {
+          const claimResult = (await client.listClaims({ repositoryId })) as {
             claims?: unknown[];
           };
           claims = claimResult.claims ?? [];
