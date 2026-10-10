@@ -62,7 +62,20 @@ const embeddedIds = new Set<number>();
 
 const RESET_EMBEDDED_SQL = "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;";
 
+/**
+ * `pg.Client` emits `error` when the server drops an idle connection
+ * (restart, `pg_terminate_backend`, network loss). With no listener Node
+ * throws it as an uncaught exception, which kills this worker thread for
+ * every adapter in the process and leaves the host blocked in `Atomics.wait`.
+ * The error is parked here instead and thrown from that adapter's next call.
+ */
+const brokenConnections = new Map<number, Error>();
+
 function connection(id: number): QueryableClient {
+  const broken = brokenConnections.get(id);
+  if (broken) {
+    throw new Error(`storage-postgres worker: connection ${id} was lost: ${broken.message}`);
+  }
   const client = connections.get(id);
   if (!client) {
     throw new Error(`storage-postgres worker: connection ${id} is not open (closed or never initialised)`);
@@ -110,6 +123,9 @@ runAsWorker(
             connectionString: opts.connectionString,
             ssl: opts.ssl,
           });
+          pgClient.on("error", (err: Error) => {
+            brokenConnections.set(id, err);
+          });
           await pgClient.connect();
           try {
             await pgClient.query(opts.schemaSql);
@@ -140,6 +156,7 @@ runAsWorker(
         const client = connections.get(id);
         if (!client) return "ok"; // closing twice is allowed
         connections.delete(id);
+        const lost = brokenConnections.delete(id);
         if (embeddedIds.delete(id)) {
           try {
             // A transaction left open by a failed caller must not leak into
@@ -151,7 +168,11 @@ runAsWorker(
           }
           return "ok";
         }
-        await (client as unknown as { end(): Promise<void> }).end();
+        try {
+          await (client as unknown as { end(): Promise<void> }).end();
+        } catch (err) {
+          if (!lost) throw err; // a lost connection cannot be ended cleanly
+        }
         return "ok";
       }
       default:
