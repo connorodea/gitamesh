@@ -1,8 +1,11 @@
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
-import type { Task, TaskAttempt } from "@gitamesh/protocol";
+import type { Task, TaskAttempt, TaskNote, TaskRevision } from "@gitamesh/protocol";
+import { TASK_UPDATABLE_FIELDS } from "@gitamesh/protocol";
 import {
   CoordinationEngine,
+  assertValidDependencies,
+  dependencyState,
   canTransitionTask,
   canTransitionAttempt,
   taskNotFound as taskNotFoundError,
@@ -11,6 +14,7 @@ import {
 import type { StorageAdapter } from "@gitamesh/core";
 import { requireScope } from "../auth.js";
 import { sendError } from "../problem.js";
+import { emitEvent, requireAgent, sendInvalidRequest } from "../collab.js";
 import { getIdempotencyKey, withIdempotency } from "../idempotency.js";
 import type { EventBroadcaster } from "../events-bus.js";
 import type { Metrics } from "../metrics.js";
@@ -30,6 +34,79 @@ const CreateTaskBody = z.object({
   branch: z.string().nullable().default(null),
   deadline_at: z.string().datetime().nullable().default(null),
 });
+
+const UpdateTaskBody = z
+  .object({
+    title: z.string().min(1).optional(),
+    description: z.string().optional(),
+    priority: z.number().optional(),
+    branch: z.string().nullable().optional(),
+    base_sha: z.string().nullable().optional(),
+    dependencies: z.array(z.string().min(1)).optional(),
+    /** Agent id recorded on the revision as who made the change. */
+    updated_by: z.string().min(1).optional(),
+  })
+  .strict();
+
+const AddNoteBody = z.object({
+  agent_id: z.string().min(1),
+  body: z.string().min(1).max(65_536),
+});
+
+/** Statuses in which a task is still waiting to be picked up. */
+const WAITING_STATUSES: ReadonlySet<Task["status"]> = new Set(["pending", "queued", "blocked"]);
+
+interface TaskOwner {
+  agent_id: string;
+  display_name: string;
+  attempt_id: string;
+  heartbeat_at: string;
+  expires_at: string;
+}
+
+/**
+ * A task as the list/show routes return it: the stored record plus who
+ * holds it and whether its dependencies let it be claimed. `readiness` is
+ * null once the task is no longer waiting (running, completed, ...).
+ */
+interface TaskView extends Task {
+  owner: TaskOwner | null;
+  readiness: "ready" | "blocked" | null;
+  blocked_by: string[];
+}
+
+function describeTasks(storage: StorageAdapter, tasks: Task[]): TaskView[] {
+  const attemptByTask = new Map<string, TaskAttempt>();
+  for (const attempt of storage.listActiveAttempts()) {
+    attemptByTask.set(attempt.task_id, attempt);
+  }
+  return tasks.map((task) => {
+    const attempt = attemptByTask.get(task.task_id);
+    const owner: TaskOwner | null = attempt
+      ? {
+          agent_id: attempt.agent_id,
+          display_name: storage.getAgent(attempt.agent_id)?.display_name ?? attempt.agent_id,
+          attempt_id: attempt.attempt_id,
+          heartbeat_at: attempt.heartbeat_at,
+          expires_at: attempt.expires_at,
+        }
+      : null;
+    if (!WAITING_STATUSES.has(task.status)) {
+      return { ...task, owner, readiness: null, blocked_by: [] };
+    }
+    const deps = dependencyState(storage, task);
+    return {
+      ...task,
+      owner,
+      readiness: deps.ready ? "ready" : "blocked",
+      blocked_by: deps.ready ? [] : deps.waitingOn.map((dep) => dep.task_id),
+    };
+  });
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
 
 const RequiredResourceSchema = z.object({
   resourceType: z.enum([
@@ -100,6 +177,14 @@ export function registerTaskRoutes(
         });
       }
       const idempotencyKey = getIdempotencyKey(request);
+      try {
+        assertValidDependencies(storage, {
+          repositoryId: parsed.data.repository_id,
+          dependencies: parsed.data.dependencies,
+        });
+      } catch (err) {
+        return sendError(reply, err);
+      }
       const { result: task, replayed } = withIdempotency<Task>(
         storage,
         "createTask",
@@ -156,13 +241,25 @@ export function registerTaskRoutes(
     "/v1/tasks",
     { preHandler: requireScope(storage, "task:read") },
     async (request) => {
-      const query = request.query as { repositoryId?: string; status?: string };
-      return {
-        tasks: storage.listTasks({
-          repositoryId: query.repositoryId,
-          status: query.status,
-        }),
+      const query = request.query as {
+        repositoryId?: string;
+        status?: string;
+        /** Only tasks this agent currently holds. */
+        agentId?: string;
+        /** "true": only tasks nobody holds that are still waiting to be claimed. */
+        unclaimed?: string;
       };
+      let tasks = describeTasks(
+        storage,
+        storage.listTasks({ repositoryId: query.repositoryId, status: query.status }),
+      );
+      if (query.agentId) {
+        tasks = tasks.filter((task) => task.owner?.agent_id === query.agentId);
+      }
+      if (query.unclaimed === "true") {
+        tasks = tasks.filter((task) => task.owner === null && WAITING_STATUSES.has(task.status));
+      }
+      return { tasks };
     },
   );
 
@@ -173,7 +270,123 @@ export function registerTaskRoutes(
       const { taskId } = request.params as { taskId: string };
       const task = storage.getTask(taskId);
       if (!task) return sendError(reply, taskNotFoundError(taskId));
-      return { task };
+      return {
+        task: describeTasks(storage, [task])[0],
+        notes: storage.listTaskNotes(taskId),
+        revisions: storage.listTaskRevisions(taskId),
+      };
+    },
+  );
+
+  app.patch(
+    "/v1/tasks/:taskId",
+    { preHandler: requireScope(storage, "task:create", { rateLimiter }) },
+    async (request, reply) => {
+      const { taskId } = request.params as { taskId: string };
+      const parsed = UpdateTaskBody.safeParse(request.body);
+      if (!parsed.success) return sendInvalidRequest(reply, parsed.error);
+      try {
+        const result = storage.transaction(() => {
+          const task = storage.getTask(taskId);
+          if (!task) throw taskNotFoundError(taskId);
+          if (parsed.data.updated_by) requireAgent(storage, parsed.data.updated_by);
+
+          const changes: TaskRevision["changes"] = {};
+          const updated: Task = { ...task };
+          for (const field of TASK_UPDATABLE_FIELDS) {
+            const next = parsed.data[field];
+            if (next === undefined || sameValue(task[field], next)) continue;
+            changes[field] = { old: task[field], new: next };
+            (updated as Record<string, unknown>)[field] = next;
+          }
+          if (Object.keys(changes).length === 0) {
+            return { task, revision: null };
+          }
+
+          if (changes.dependencies) {
+            if (!WAITING_STATUSES.has(task.status)) {
+              throw invalidStateTransition({
+                entity: "Task",
+                entityId: taskId,
+                from: task.status,
+                to: task.status,
+                detail: `Task ${taskId} is "${task.status}"; dependencies can change only while a task is pending, queued or blocked.`,
+              });
+            }
+            assertValidDependencies(storage, {
+              taskId,
+              repositoryId: task.repository_id,
+              dependencies: updated.dependencies,
+            });
+          }
+
+          const now = storage.now();
+          updated.updated_at = now;
+          storage.saveTask(updated);
+          const revision: TaskRevision = {
+            revision_id: storage.generateId("rev"),
+            task_id: taskId,
+            changed_by: parsed.data.updated_by ?? null,
+            changed_at: now,
+            changes,
+          };
+          storage.appendTaskRevision(revision);
+          emitEvent(storage, {
+            event_type: "task.updated",
+            namespace_id: task.repository_id,
+            repository_id: task.repository_id,
+            workflow_id: task.workflow_id,
+            task_id: taskId,
+            agent_id: revision.changed_by,
+            payload: { revision_id: revision.revision_id, fields: Object.keys(changes) },
+          });
+          return { task: updated, revision };
+        });
+        if (result.revision) broadcaster.notifyNew();
+        return { task: describeTasks(storage, [result.task])[0], revision: result.revision };
+      } catch (err) {
+        return sendError(reply, err);
+      }
+    },
+  );
+
+  app.post(
+    "/v1/tasks/:taskId/notes",
+    { preHandler: requireScope(storage, "task:claim", { rateLimiter }) },
+    async (request, reply) => {
+      const { taskId } = request.params as { taskId: string };
+      const parsed = AddNoteBody.safeParse(request.body);
+      if (!parsed.success) return sendInvalidRequest(reply, parsed.error);
+      try {
+        const note = storage.transaction(() => {
+          const task = storage.getTask(taskId);
+          if (!task) throw taskNotFoundError(taskId);
+          requireAgent(storage, parsed.data.agent_id);
+          const created: TaskNote = {
+            note_id: storage.generateId("note"),
+            task_id: taskId,
+            agent_id: parsed.data.agent_id,
+            body: parsed.data.body,
+            created_at: storage.now(),
+          };
+          storage.appendTaskNote(created);
+          emitEvent(storage, {
+            event_type: "task.note_added",
+            namespace_id: task.repository_id,
+            repository_id: task.repository_id,
+            workflow_id: task.workflow_id,
+            task_id: taskId,
+            agent_id: created.agent_id,
+            payload: { note_id: created.note_id },
+          });
+          return created;
+        });
+        broadcaster.notifyNew();
+        reply.code(201);
+        return { note };
+      } catch (err) {
+        return sendError(reply, err);
+      }
     },
   );
 

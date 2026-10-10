@@ -6,6 +6,11 @@ import type {
   Lease,
   EventEnvelope,
   Agent,
+  Message,
+  MessageAck,
+  TaskRevision,
+  TaskNote,
+  PathLock,
 } from "@gitamesh/protocol";
 import type { StorageAdapter, StoredToken, EventWithCursor } from "@gitamesh/core";
 import { SCHEMA_SQL } from "./schema.js";
@@ -233,6 +238,22 @@ function eventFromRow(row: EventRow): EventEnvelope {
     payload: JSON.parse(row.payload),
     metadata: JSON.parse(row.metadata),
   };
+}
+
+type MessageRow = {
+  message_id: string;
+  from_agent_id: string;
+  to_agent_id: string;
+  repository_id: string | null;
+  task_id: string | null;
+  body: string;
+  created_at: string;
+};
+
+type PathLockRow = Omit<PathLock, "paths"> & { paths: string };
+
+function pathLockFromRow(row: PathLockRow): PathLock {
+  return { ...row, paths: JSON.parse(row.paths) };
 }
 
 let idCounter = 0;
@@ -617,6 +638,162 @@ export class SqliteStorageAdapter implements StorageAdapter {
       )
       .run(claimId);
     return result.changes > 0;
+  }
+
+  // --- Attempts: daemon-facing listing (owner visibility) --------------------
+  listActiveAttempts(): TaskAttempt[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM task_attempts WHERE status IN ('created','leased','running')`,
+      )
+      .all() as AttemptRow[];
+    return rows.map(attemptFromRow);
+  }
+
+  // --- Messages (append-only) -------------------------------------------------
+  appendMessage(message: Message): void {
+    this.db
+      .prepare(
+        `INSERT INTO messages (message_id, from_agent_id, to_agent_id, repository_id, task_id, body, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        message.message_id,
+        message.from,
+        message.to,
+        message.repository_id,
+        message.task_id,
+        message.body,
+        message.created_at,
+      );
+  }
+
+  getMessage(messageId: string): Message | undefined {
+    const row = this.db
+      .prepare(`SELECT * FROM messages WHERE message_id = ?`)
+      .get(messageId) as MessageRow | undefined;
+    return row ? this.messageFromRow(row) : undefined;
+  }
+
+  listMessages(filter?: { repositoryId?: string; since?: string }): Message[] {
+    const clauses: string[] = [];
+    const args: string[] = [];
+    if (filter?.repositoryId) {
+      clauses.push("repository_id = ?");
+      args.push(filter.repositoryId);
+    }
+    if (filter?.since) {
+      clauses.push("created_at > ?");
+      args.push(filter.since);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db
+      .prepare(`SELECT * FROM messages ${where} ORDER BY created_at ASC, rowid ASC`)
+      .all(...args) as MessageRow[];
+    return rows.map((row) => this.messageFromRow(row));
+  }
+
+  ackMessage(messageId: string, agentId: string, ackedAtIso: string): boolean {
+    const result = this.db
+      .prepare(
+        `INSERT INTO message_acks (message_id, agent_id, acked_at) VALUES (?, ?, ?)
+         ON CONFLICT(message_id, agent_id) DO NOTHING`,
+      )
+      .run(messageId, agentId, ackedAtIso);
+    return result.changes > 0;
+  }
+
+  private messageFromRow(row: MessageRow): Message {
+    const acks = this.db
+      .prepare(
+        `SELECT agent_id, acked_at FROM message_acks WHERE message_id = ? ORDER BY acked_at ASC, rowid ASC`,
+      )
+      .all(row.message_id) as MessageAck[];
+    return {
+      message_id: row.message_id,
+      from: row.from_agent_id,
+      to: row.to_agent_id,
+      repository_id: row.repository_id,
+      task_id: row.task_id,
+      body: row.body,
+      created_at: row.created_at,
+      acked_by: acks,
+    };
+  }
+
+  // --- Task history (append-only) ---------------------------------------------
+  appendTaskRevision(revision: TaskRevision): void {
+    this.db
+      .prepare(
+        `INSERT INTO task_revisions (revision_id, task_id, changed_by, changed_at, changes)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(
+        revision.revision_id,
+        revision.task_id,
+        revision.changed_by,
+        revision.changed_at,
+        JSON.stringify(revision.changes),
+      );
+  }
+
+  listTaskRevisions(taskId: string): TaskRevision[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM task_revisions WHERE task_id = ? ORDER BY changed_at ASC, rowid ASC`,
+      )
+      .all(taskId) as Array<Omit<TaskRevision, "changes"> & { changes: string }>;
+    return rows.map((row) => ({ ...row, changes: JSON.parse(row.changes) }));
+  }
+
+  appendTaskNote(note: TaskNote): void {
+    this.db
+      .prepare(
+        `INSERT INTO task_notes (note_id, task_id, agent_id, body, created_at)
+         VALUES (@note_id, @task_id, @agent_id, @body, @created_at)`,
+      )
+      .run(note);
+  }
+
+  listTaskNotes(taskId: string): TaskNote[] {
+    return this.db
+      .prepare(`SELECT * FROM task_notes WHERE task_id = ? ORDER BY created_at ASC, rowid ASC`)
+      .all(taskId) as TaskNote[];
+  }
+
+  // --- Path locks ---------------------------------------------------------------
+  savePathLock(lock: PathLock): void {
+    this.db
+      .prepare(
+        `INSERT INTO path_locks (lock_id, repository_id, agent_id, task_id, paths, acquired_at, heartbeat_at, expires_at, released_at)
+         VALUES (@lock_id, @repository_id, @agent_id, @task_id, @paths, @acquired_at, @heartbeat_at, @expires_at, @released_at)
+         ON CONFLICT(lock_id) DO UPDATE SET
+           heartbeat_at=excluded.heartbeat_at, expires_at=excluded.expires_at,
+           released_at=excluded.released_at`,
+      )
+      .run({ ...lock, paths: JSON.stringify(lock.paths) });
+  }
+
+  getPathLock(lockId: string): PathLock | undefined {
+    const row = this.db
+      .prepare(`SELECT * FROM path_locks WHERE lock_id = ?`)
+      .get(lockId) as PathLockRow | undefined;
+    return row ? pathLockFromRow(row) : undefined;
+  }
+
+  listUnreleasedPathLocks(repositoryId?: string): PathLock[] {
+    const rows = repositoryId
+      ? (this.db
+          .prepare(
+            `SELECT * FROM path_locks WHERE repository_id = ? AND released_at IS NULL ORDER BY acquired_at ASC, rowid ASC`,
+          )
+          .all(repositoryId) as PathLockRow[])
+      : (this.db
+          .prepare(
+            `SELECT * FROM path_locks WHERE released_at IS NULL ORDER BY acquired_at ASC, rowid ASC`,
+          )
+          .all() as PathLockRow[]);
+    return rows.map(pathLockFromRow);
   }
 
   // --- Tokens (daemon-only; see schema.ts) -----------------------------------

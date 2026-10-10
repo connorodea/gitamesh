@@ -258,3 +258,80 @@ export const INTEGRATION_STATES = [
 ] as const;
 export type IntegrationState = (typeof INTEGRATION_STATES)[number];
 export const IntegrationStateSchema = z.enum(INTEGRATION_STATES);
+
+// --- Agent collaboration records -------------------------------------------
+//
+// Everything below is APPEND-ONLY history: messages, acks, task revisions
+// and task notes are never updated in place and never deleted. A path lock
+// is the one mutable record (heartbeat/release), but released and expired
+// locks stay stored as history.
+
+/** `to` is either an agent id or this literal, meaning every agent. */
+export const MESSAGE_BROADCAST = "all";
+
+export const MessageAckSchema = z.object({
+  agent_id: z.string(),
+  acked_at: z.string().datetime(),
+});
+export type MessageAck = z.infer<typeof MessageAckSchema>;
+
+export const MessageSchema = z.object({
+  message_id: z.string(),
+  from: z.string(),
+  to: z.string(),
+  repository_id: z.string().nullable(),
+  task_id: z.string().nullable(),
+  body: z.string(),
+  created_at: z.string().datetime(),
+  acked_by: z.array(MessageAckSchema),
+});
+export type Message = z.infer<typeof MessageSchema>;
+
+/** The task fields `PATCH /v1/tasks/:id` may change. */
+export const TASK_UPDATABLE_FIELDS = [
+  "title",
+  "description",
+  "priority",
+  "branch",
+  "base_sha",
+  "dependencies",
+] as const;
+export type TaskUpdatableField = (typeof TASK_UPDATABLE_FIELDS)[number];
+
+export const TaskRevisionSchema = z.object({
+  revision_id: z.string(),
+  task_id: z.string(),
+  /** Agent id that made the change, when the caller supplied one. */
+  changed_by: z.string().nullable(),
+  changed_at: z.string().datetime(),
+  changes: z.record(z.string(), z.object({ old: z.unknown(), new: z.unknown() })),
+});
+export type TaskRevision = z.infer<typeof TaskRevisionSchema>;
+
+export const TaskNoteSchema = z.object({
+  note_id: z.string(),
+  task_id: z.string(),
+  agent_id: z.string(),
+  body: z.string(),
+  created_at: z.string().datetime(),
+});
+export type TaskNote = z.infer<typeof TaskNoteSchema>;
+
+/**
+ * An advisory lock an agent holds on path globs in a repository,
+ * independent of any task attempt (unlike `ResourceClaim`, which lives and
+ * dies with an attempt's lease). Active while `released_at` is null and
+ * `expires_at` is in the future.
+ */
+export const PathLockSchema = z.object({
+  lock_id: z.string(),
+  repository_id: z.string(),
+  agent_id: z.string(),
+  task_id: z.string().nullable(),
+  paths: z.array(z.string()),
+  acquired_at: z.string().datetime(),
+  heartbeat_at: z.string().datetime(),
+  expires_at: z.string().datetime(),
+  released_at: z.string().datetime().nullable(),
+});
+export type PathLock = z.infer<typeof PathLockSchema>;

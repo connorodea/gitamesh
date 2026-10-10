@@ -14,12 +14,14 @@ import {
   resourceConflict,
   staleAttemptToken,
   invalidStateTransition,
+  taskDependenciesIncomplete,
 } from "@gitamesh/protocol";
 import type { StorageAdapter } from "./storage-adapter.js";
 import { canTransitionTask, canTransitionAttempt } from "./state-machines.js";
 import { validateResourceKey, claimsConflict } from "./resource-keys.js";
 import { evaluateFanIn } from "./fan-in.js";
 import { cascadeCancelChildren } from "./cancellation.js";
+import { dependencyState } from "./dependencies.js";
 
 export { validateResourceKey } from "./resource-keys.js";
 
@@ -149,6 +151,19 @@ export class CoordinationEngine {
         throw taskAlreadyClaimed({
           taskId: task.task_id,
           existingAttemptId: activeAttempts[0]?.attempt_id,
+        });
+      }
+
+      // A task whose dependencies have not met its join policy is not
+      // claimable, whatever its status. Fan-in normally moves such a task
+      // pending -> queued only once the policy holds, but nothing stops a
+      // caller from claiming a still-`pending` task directly.
+      const deps = dependencyState(this.storage, task);
+      if (!deps.ready) {
+        throw taskDependenciesIncomplete({
+          taskId: task.task_id,
+          joinPolicy: task.join_policy,
+          waitingOn: deps.waitingOn,
         });
       }
 
