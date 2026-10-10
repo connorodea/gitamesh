@@ -38,9 +38,10 @@ let client: QueryableClient | undefined;
 /**
  * The one embedded Postgres this worker ever boots (test-only path).
  *
- * `synckit` caches its worker per worker file, so every
- * `PostgresStorageAdapter` in a process already shares this single worker
- * thread and this single `client` slot. Booting a fresh PGlite (a WASM
+ * Embedded adapters go through `synckit`'s cached `createSyncFn`, so they
+ * all share this single worker thread and this single `client` slot (real
+ * `pg` adapters each get their own worker — see `sync-client.ts`; only one
+ * embedded adapter may be live at a time, enforced there). Booting a fresh PGlite (a WASM
  * instance) per adapter and closing it on `end` meant a test file created
  * and freed one WASM instance per test — and freeing WASM code from this
  * worker thread is what crashed V8 on Node 24 / Linux
@@ -57,10 +58,10 @@ let embedded: (QueryableClient & { exec(text: string): Promise<unknown> }) | und
 const RESET_EMBEDDED_SQL = "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;";
 
 /**
- * A single, persistent connection (never a `pg.Pool`) is intentional: this
+ * A single, persistent connection (never a `pg.Pool`) is intentional: each
  * worker is the exclusive synchronous-RPC target for exactly one
- * `PostgresStorageAdapter` instance in the host process (see
- * `sync-client.ts`), and `StorageAdapter.transaction()` needs BEGIN/COMMIT/
+ * `PostgresStorageAdapter` (real `pg`: one worker per adapter; embedded:
+ * the one live adapter — see `sync-client.ts`), and `StorageAdapter.transaction()` needs BEGIN/COMMIT/
  * ROLLBACK to land on the same server-side connection as the statements
  * they bracket. A pool would risk handing different statements in the same
  * "transaction" to different connections. Real concurrency across daemon

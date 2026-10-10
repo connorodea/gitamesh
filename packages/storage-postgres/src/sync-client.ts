@@ -1,4 +1,4 @@
-import { createSyncFn } from "synckit";
+import { createSyncFn, startWorkerThread } from "synckit";
 import { fileURLToPath } from "node:url";
 import type { PostgresWorkerInitOptions } from "./worker.js";
 
@@ -27,20 +27,68 @@ import type { PostgresWorkerInitOptions } from "./worker.js";
  * concurrency across daemon processes still comes from Postgres itself:
  * each process gets its own worker and its own server-side connection,
  * and Postgres's own MVCC/locking arbitrates between them.
+ *
+ * Worker ownership. `createSyncFn` caches its worker per worker file, so
+ * going through it would make every adapter in a process share ONE worker
+ * thread and ONE module-global connection in `worker.ts`: a second adapter
+ * would replace (and leak) the first one's `pg.Client`, closing either would
+ * end both, and a `transaction()` on one would interleave with queries on
+ * the other. So the real `pg` path calls `startWorkerThread` directly — one
+ * worker, one connection per adapter. The worker is `unref`'d by synckit,
+ * so an adapter that was closed leaves only an idle thread, which does not
+ * keep the process alive.
+ *
+ * The embedded (pglite) test path is the opposite on purpose: it uses the
+ * cached shared worker so the single WASM instance is booted once per
+ * process (see `embedded` in `worker.ts`). One instance cannot serve two
+ * independent adapters, so a second live embedded adapter is refused rather
+ * than silently resetting the first one's data.
  */
+let liveEmbeddedClient: SyncPostgresClient | undefined;
+
 export class SyncPostgresClient {
   private readonly syncFn: (
     action: "init" | "query" | "begin" | "commit" | "rollback" | "end",
     ...args: unknown[]
   ) => unknown;
 
-  constructor() {
+  private readonly embedded: boolean;
+  private ownsEmbedded = false;
+
+  constructor(embedded = false) {
+    this.embedded = embedded;
     const workerPath = fileURLToPath(new URL("./worker.js", import.meta.url));
-    this.syncFn = createSyncFn(workerPath) as typeof this.syncFn;
+    this.syncFn = (
+      embedded ? createSyncFn(workerPath) : startWorkerThread(workerPath)
+    ) as typeof this.syncFn;
   }
 
   init(opts: PostgresWorkerInitOptions): void {
-    this.syncFn("init", opts);
+    if (this.embedded) {
+      if (liveEmbeddedClient !== undefined) {
+        throw new Error(
+          "PostgresStorageAdapter: an embedded (pglite) adapter is still open in this process. " +
+            "The embedded Postgres is a single shared instance; close() the existing adapter first.",
+        );
+      }
+      // Claim before the worker resets the shared instance, so a failed
+      // init cannot leave a half-reset instance unguarded.
+      liveEmbeddedClient = this;
+      this.ownsEmbedded = true;
+    }
+    try {
+      this.syncFn("init", opts);
+    } catch (err) {
+      this.releaseEmbedded();
+      throw err;
+    }
+  }
+
+  private releaseEmbedded(): void {
+    if (this.ownsEmbedded) {
+      this.ownsEmbedded = false;
+      liveEmbeddedClient = undefined;
+    }
   }
 
   query<Row = Record<string, unknown>>(sql: string, params?: unknown[]): Row[] {
@@ -60,6 +108,10 @@ export class SyncPostgresClient {
   }
 
   close(): void {
-    this.syncFn("end");
+    try {
+      this.syncFn("end");
+    } finally {
+      this.releaseEmbedded();
+    }
   }
 }

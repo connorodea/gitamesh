@@ -16,6 +16,22 @@ jobs:
   build-test:
     name: Typecheck, build, test
     runs-on: ubuntu-latest
+    # Real server for packages/storage-postgres' two-adapters-in-one-process
+    # isolation tests (skipped locally when GITAMESH_TEST_PG_URL is unset).
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      GITAMESH_TEST_PG_URL: postgresql://postgres:postgres@localhost:5432/postgres
     steps:
       - name: Checkout
         uses: actions/checkout@v4

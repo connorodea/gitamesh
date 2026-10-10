@@ -93,6 +93,34 @@ describe("PostgresStorageAdapter: schema + CRUD round-trip", () => {
   });
 });
 
+describe("adapter isolation (embedded path)", () => {
+  it("refuses a second live embedded adapter instead of wiping the first one's data", () => {
+    const a = freshStorage();
+    const task = buildTask();
+    a.saveTask(task);
+
+    // The embedded Postgres is one instance per process and is reset for
+    // each new adapter, so a second live adapter would destroy `a`'s data.
+    expect(() => freshStorage()).toThrow(/still open/);
+
+    expect(a.getTask(task.task_id)).toEqual(task);
+  });
+
+  it("allows a new embedded adapter once the previous one is closed", () => {
+    freshStorage().close();
+    openAdapters.pop();
+    const b = freshStorage();
+    expect(b.listTasks({})).toEqual([]);
+  });
+
+  it("close() is idempotent for the embedded adapter", () => {
+    const a = createEmbeddedPostgresStorageForTests();
+    a.close();
+    a.close();
+    expect(() => freshStorage()).not.toThrow();
+  });
+});
+
 describe("invariant #1 (real Postgres adapter): only one concurrent claim wins", () => {
   it("two racing claimTask calls against a real transactional store: exactly one succeeds", async () => {
     const storage = freshStorage();

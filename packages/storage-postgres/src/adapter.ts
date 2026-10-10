@@ -277,10 +277,12 @@ type MessageRow = {
  * `storage-adapter.ts` doc comment). Every query is routed through a
  * persistent worker thread via `SyncPostgresClient` so this class can
  * offer the same synchronous method surface as `SqliteStorageAdapter` —
- * see `sync-client.ts` for why, and its cost.
+ * see `sync-client.ts` for why, and its cost. Each real-`pg` adapter owns
+ * its own worker and connection; the embedded test backend is one shared
+ * instance, so only one embedded adapter may be open at a time.
  */
 export class PostgresStorageAdapter implements StorageAdapter {
-  private readonly client = new SyncPostgresClient();
+  private readonly client: SyncPostgresClient;
   private inTransaction = false;
 
   constructor(options: PostgresStorageOptions) {
@@ -289,6 +291,7 @@ export class PostgresStorageAdapter implements StorageAdapter {
         "PostgresStorageAdapter: connectionString is required unless pglite is set.",
       );
     }
+    this.client = new SyncPostgresClient(options.pglite === true);
     const initOptions: PostgresWorkerInitOptions = {
       connectionString: options.connectionString,
       ssl: options.ssl,
