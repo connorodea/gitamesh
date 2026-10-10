@@ -478,7 +478,7 @@ describe("gitamesh lock", () => {
         },
       },
     });
-    const code = await runCli(["node", "gitamesh", "lock", "list"], {
+    const code = await runCli(["node", "gitamesh", "lock", "list", "--claims"], {
       cwd: dir,
       env: { GITAMESH_TOKEN: "gm_x" },
       sink,
@@ -533,6 +533,77 @@ describe("gitamesh status", () => {
     const output = sink.logs.join("\n");
     expect(output).toContain("== doctor ==");
     expect(output).toContain("t-1");
+  });
+
+  it("lists active task claims with the holder's name and last heartbeat, and path locks", async () => {
+    const owner = {
+      agent_id: "agent_1",
+      display_name: "claude-mvp-loop",
+      attempt_id: "attempt_1",
+      heartbeat_at: "2026-01-01T00:00:10.000Z",
+      expires_at: "2026-01-01T00:00:40.000Z",
+    };
+    const routes = {
+      "GET /healthz": { body: { status: "ok" } },
+      "GET /v1/agents": { body: { agents: [] } },
+      "GET /v1/tasks": {
+        body: {
+          tasks: [
+            { task_id: "t-1", title: "held", status: "running", owner, readiness: null, blocked_by: [] },
+            { task_id: "t-2", title: "free", status: "pending", owner: null, readiness: "ready", blocked_by: [] },
+          ],
+        },
+      },
+      "GET /v1/claims": { body: { claims: [] } },
+      "GET /v1/locks": {
+        body: {
+          locks: [
+            {
+              lock_id: "lock_1",
+              agent_id: "agent_2",
+              holder_display_name: "codex-mvp-audit",
+              paths: ["src/**"],
+              task_id: null,
+              expires_at: "2026-01-01T00:15:00.000Z",
+            },
+          ],
+        },
+      },
+    } as const;
+
+    const sink = createFakeSink();
+    const { fetchImpl, calls } = createFakeFetch(routes);
+    const deps = { cwd: dir, env: { GITAMESH_TOKEN: "gm_x" }, fetchImpl };
+    expect(await runCli(["node", "gitamesh", "status"], { ...deps, sink })).toBe(0);
+
+    const lines = sink.logs;
+    const claimsAt = lines.indexOf("== claims ==");
+    const locksAt = lines.indexOf("== path locks ==");
+    const claimRows = lines.slice(claimsAt + 1, locksAt).join("\n");
+    expect(claimRows).toContain("t-1");
+    expect(claimRows).toContain("claude-mvp-loop");
+    expect(claimRows).toContain("2026-01-01T00:00:10.000Z");
+    expect(claimRows).not.toContain("t-2");
+    expect(lines.slice(locksAt).join("\n")).toContain("codex-mvp-audit (agent_2)");
+    // The repository filter goes out under the name the daemon reads.
+    for (const path of ["/v1/tasks", "/v1/claims", "/v1/locks"]) {
+      expect(calls.find((c) => new URL(c.url).pathname === path)?.url).toMatch(/\?repositoryId=/);
+    }
+
+    const jsonSink = createFakeSink();
+    expect(await runCli(["node", "gitamesh", "status", "--json"], { ...deps, sink: jsonSink })).toBe(0);
+    const report = JSON.parse(jsonSink.logs.join("\n"));
+    expect(report.task_claims).toEqual([
+      {
+        task_id: "t-1",
+        title: "held",
+        owner: "claude-mvp-loop",
+        agent_id: "agent_1",
+        heartbeat: "2026-01-01T00:00:10.000Z",
+        expires_at: "2026-01-01T00:00:40.000Z",
+      },
+    ]);
+    expect(report.locks).toHaveLength(1);
   });
 
   it("still reports doctor failures gracefully when the daemon is unreachable", async () => {

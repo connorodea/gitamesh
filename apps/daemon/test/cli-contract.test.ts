@@ -101,11 +101,13 @@ describe("gitamesh CLI <-> daemon request contract", () => {
     expect(claimed.resourceClaims.map((c) => c.resource_key)).toEqual(["src/app.ts"]);
 
     const mine = await cliJson<Array<{ resource_key: string }>>(
-      "lock", "list", "--repository-id", "repo-1",
+      "lock", "list", "--claims", "--repository-id", "repo-1",
     );
     expect(mine.map((c) => c.resource_key)).toEqual(["src/app.ts"]);
     // The repository filter must actually reach the daemon (`?repositoryId=`).
-    expect(await cliJson<unknown[]>("lock", "list", "--repository-id", "other-repo")).toEqual([]);
+    expect(
+      await cliJson<unknown[]>("lock", "list", "--claims", "--repository-id", "other-repo"),
+    ).toEqual([]);
   });
 
   it("task list --repository-id filters on the daemon side", async () => {
@@ -148,7 +150,58 @@ describe("gitamesh CLI <-> daemon request contract", () => {
 
     const cancelled = await cliJson<{ task: { status: string } }>("task", "cancel", taskId);
     expect(cancelled.task.status).toBe("cancelled");
-    expect(await cliJson<unknown[]>("lock", "list")).toEqual([]);
+    expect(await cliJson<unknown[]>("lock", "list", "--claims")).toEqual([]);
+  });
+
+  it("lock release <claimId> releases a task's resource claim", async () => {
+    const { agentId, taskId } = await createAgentAndTask();
+    await claim(taskId, agentId, "--resource", "path:write:src/app.ts");
+    const [held] = await cliJson<Array<{ resource_claim_id: string }>>("lock", "list", "--claims");
+
+    expect(await cliJson<{ released: boolean }>("lock", "release", held!.resource_claim_id)).toEqual({
+      released: true,
+    });
+    expect(await cliJson<unknown[]>("lock", "list", "--claims")).toEqual([]);
+  });
+
+  it("a refused request prints the failure as line 1, then the problem's fields", async () => {
+    const { agentId, taskId } = await createAgentAndTask();
+    await claim(taskId, agentId);
+
+    const second = await cli(
+      "task", "claim", taskId, "--agent-id", agentId, "--workspace-session-id", "ws-2",
+    );
+    expect(second.code).toBe(1);
+    expect(second.logs).toEqual([]);
+    expect(second.errors[0]).toBe(
+      `Error: POST /v1/tasks/${taskId}/claim failed (409): Task not claimable — Task ${taskId} is in status "running" and cannot be claimed.`,
+    );
+    expect(second.errors.slice(1)).toEqual([
+      "  type: https://gitamesh.dev/problems/task-not-claimable",
+      `  task_id: ${taskId}`,
+      "  current_status: running",
+    ]);
+  });
+
+  it("a body that fails the daemon's schema is one readable line, not a JSON dump", async () => {
+    const result = await cli(
+      "task", "create", "--workflow-id", "wf-1", "--repository-id", "repo-1",
+      "--title", "t", "--priority", "not-a-number",
+    );
+    expect(result.code).toBe(1);
+    expect(result.errors[0]).toMatch(/^Error: POST \/v1\/tasks failed \(400\): Invalid request body — priority: /);
+    expect(result.errors.join("\n")).not.toContain("[");
+  });
+
+  // Known gap, pinned so it cannot change silently: the daemon has no
+  // /v1/repositories route, so `repo register` cannot succeed yet.
+  it("repo register fails plainly while the daemon has no /v1/repositories route", async () => {
+    const { execFileSync } = await import("node:child_process");
+    execFileSync("git", ["init", "-q", "--initial-branch=main"], { cwd });
+
+    const result = await cli("repo", "register");
+    expect(result.code).toBe(1);
+    expect(result.errors[0]).toMatch(/^Error: repo register failed: POST \/v1\/repositories failed \(404\)/);
   });
 
   it("agent heartbeat is accepted", async () => {
