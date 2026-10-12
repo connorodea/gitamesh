@@ -100,10 +100,10 @@ describe("GitameshClient", () => {
     });
     const client = new GitameshClient({ baseUrl: "http://127.0.0.1:4477", token: "t", fetchImpl });
 
-    await client.listTasks({ repository_id: "repo-1", status: "pending" });
+    await client.listTasks({ repositoryId: "repo-1", status: "pending" });
 
     const url = new URL(calls[0]!.url);
-    expect(url.searchParams.get("repository_id")).toBe("repo-1");
+    expect(url.searchParams.get("repositoryId")).toBe("repo-1");
     expect(url.searchParams.get("status")).toBe("pending");
   });
 });

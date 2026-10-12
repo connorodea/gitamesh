@@ -43,18 +43,19 @@ in isolation (not assumed to work together):
 
 Both held up, so `sync-client.ts` + `worker.ts` implement the bridge:
 `worker.ts` runs inside a persistent `worker_threads` worker and owns the
-one actual `pg.Client` (or `PGlite` instance) connection; `sync-client.ts`
+actual `pg.Client` (or `PGlite` instance) connections, one per adapter,
+keyed by a connection id; `sync-client.ts`
 exposes `init`/`query`/`begin`/`commit`/`rollback`/`close` as plain
 synchronous method calls via `synckit`'s `createSyncFn`.
 
 ### The honest cost
 
-- **A single persistent connection, not a pool.** `StorageAdapter.
+- **One persistent connection per adapter, not a pool.** `StorageAdapter.
   transaction()` needs `BEGIN`/`COMMIT`/`ROLLBACK` to land on the same
   server-side connection as the statements they bracket. Since only one
   synchronous call can be in flight at a time anyway (the calling thread
-  is fully blocked on `Atomics.wait` for the duration), a single
-  connection is sufficient and simplest — see the comment above
+  is fully blocked on `Atomics.wait` for the duration), one
+  connection per adapter is sufficient and simplest — see the comment above
   `runAsWorker(...)` in `src/worker.ts`.
 - **Every storage call blocks the daemon process's event loop** for the
   round trip to the worker thread. This sounds worse than it is: it is

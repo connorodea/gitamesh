@@ -8,6 +8,8 @@ export interface CliDeps {
   env: NodeJS.ProcessEnv;
   sink: OutputSink;
   fetchImpl?: FetchLike;
+  /** Reads all of stdin (for `--body -`). Defaults to the process's stdin. */
+  readStdin?: () => Promise<string>;
 }
 
 export interface ResolvedClient {

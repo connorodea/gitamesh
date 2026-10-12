@@ -21,10 +21,15 @@ describe("parseWorktreePorcelain", () => {
       "HEAD cccccccccccccccccccccccccccccccccccccccc",
       "detached",
       "",
+      "worktree /repo/removed",
+      "HEAD dddddddddddddddddddddddddddddddddddddddd",
+      "branch refs/heads/removed",
+      "prunable gitdir file points to non-existent location",
+      "",
     ].join("\n");
 
     const blocks = parseWorktreePorcelain(porcelain);
-    expect(blocks).toHaveLength(3);
+    expect(blocks).toHaveLength(4);
     expect(blocks[0]).toMatchObject({
       worktreePath: "/repo/main",
       branch: "main",
@@ -32,6 +37,7 @@ describe("parseWorktreePorcelain", () => {
     });
     expect(blocks[1]).toMatchObject({ worktreePath: "/repo/linked", branch: "feature" });
     expect(blocks[2]).toMatchObject({ worktreePath: "/repo/detached", detached: true, branch: null });
+    expect(blocks[3]).toMatchObject({ worktreePath: "/repo/removed", prunable: true });
   });
 
   it("tolerates a trailing block with no final blank line", () => {
@@ -98,6 +104,17 @@ describe("listWorktrees (real repo)", () => {
     expect(detached?.branch).toBeNull();
 
     await fs.rm(worktreeDir, { recursive: true, force: true });
+  });
+
+  it("skips a prunable worktree whose directory no longer exists", async () => {
+    const worktreeDir = `${repoDir}-removed`;
+    git(repoDir, ["worktree", "add", "-b", "feature-removed", worktreeDir]);
+    await fs.rm(worktreeDir, { recursive: true, force: true });
+
+    const worktrees = await listWorktrees(repoDir);
+
+    expect(worktrees).toHaveLength(1);
+    expect(worktrees[0]?.branch).toBe("main");
   });
 
   it("resolves canonical_path through a symlink to its real, resolved location", async () => {

@@ -1,16 +1,12 @@
 /**
  * A small, injectable HTTP client for talking to the Gitamesh daemon.
  *
- * Every method here calls a route documented in the project's master spec
- * / this package's README. As of writing, `apps/daemon` has ONLY
- * `/healthz`, `/readyz`, `/metrics`, and the `/v1/agents*` routes
- * committed — `/v1/repositories`, `/v1/tasks*`, and `/v1/claims*` do not
- * exist yet (they may be landing concurrently from another agent working
- * on `apps/daemon`). Those methods are written against the documented
- * route SHAPE from the spec so the CLI compiles and its argument-parsing/
- * output-formatting logic is fully testable today; they will 404 against
- * a daemon that hasn't grown those routes yet. `gitamesh doctor` surfaces
- * that gap plainly rather than pretending it works.
+ * Request bodies/queries must match the zod schemas in
+ * `apps/daemon/src/routes/*.ts` (table in `apps/daemon/README.md`). Note the
+ * daemon is NOT uniform: create routes take snake_case, while
+ * claim/heartbeat/complete/fail and the list filters take camelCase.
+ * `apps/daemon/test/cli-contract.test.ts` runs this CLI against a real
+ * in-memory daemon to keep the two in step.
  *
  * `fetchImpl` is injectable so unit tests can supply a fake `fetch`
  * instead of hitting a real network / real daemon.
@@ -140,7 +136,62 @@ export class GitameshClient {
     return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/cancel`, { body });
   }
 
-  // --- resource claims / locks ----------------------------------------------
+  async updateTask(taskId: string, body: Record<string, unknown>): Promise<unknown> {
+    return this.request("PATCH", `/v1/tasks/${encodeURIComponent(taskId)}`, { body });
+  }
+
+  async addTaskNote(taskId: string, body: { agent_id: string; body: string }): Promise<unknown> {
+    return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/notes`, { body });
+  }
+
+  // --- messages -------------------------------------------------------------
+
+  async sendMessage(body: {
+    from: string;
+    to: string;
+    body: string;
+    repository_id?: string | null;
+    task_id?: string | null;
+  }): Promise<unknown> {
+    return this.request("POST", "/v1/messages", { body });
+  }
+
+  async listMessages(query?: ListQuery): Promise<unknown> {
+    return this.request("GET", "/v1/messages", { query });
+  }
+
+  async ackMessage(messageId: string, body: { agent_id: string }): Promise<unknown> {
+    return this.request("POST", `/v1/messages/${encodeURIComponent(messageId)}/ack`, { body });
+  }
+
+  // --- path locks -------------------------------------------------------------
+
+  async acquireLock(body: {
+    agent_id: string;
+    repository_id: string;
+    paths: string[];
+    task_id?: string | null;
+    ttl_seconds?: number;
+  }): Promise<unknown> {
+    return this.request("POST", "/v1/locks", { body });
+  }
+
+  async listLocks(query?: ListQuery): Promise<unknown> {
+    return this.request("GET", "/v1/locks", { query });
+  }
+
+  async heartbeatLock(
+    lockId: string,
+    body: { agent_id: string; ttl_seconds?: number },
+  ): Promise<unknown> {
+    return this.request("POST", `/v1/locks/${encodeURIComponent(lockId)}/heartbeat`, { body });
+  }
+
+  async releaseLock(lockId: string, body: { agent_id: string }): Promise<unknown> {
+    return this.request("POST", `/v1/locks/${encodeURIComponent(lockId)}/release`, { body });
+  }
+
+  // --- resource claims --------------------------------------------------------
 
   async listClaims(query?: ListQuery): Promise<unknown> {
     return this.request("GET", "/v1/claims", { query });
@@ -165,7 +216,7 @@ export class GitameshClient {
   }
 
   private async request<T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PATCH",
     path: string,
     opts: { body?: unknown; query?: ListQuery; auth?: boolean } = {},
   ): Promise<T> {
@@ -200,7 +251,7 @@ export class GitameshClient {
 
     if (!response.ok) {
       const problem = (isJson ? (payload as ProblemDetails) : undefined) ?? undefined;
-      const detail = problem?.detail ?? problem?.title ?? response.statusText;
+      const detail = summarizeProblem(problem) ?? response.statusText;
       throw new GitameshClientError({
         message: `${method} ${path} failed (${response.status}): ${detail}`,
         baseUrl: this.baseUrl,
@@ -212,4 +263,33 @@ export class GitameshClient {
 
     return payload as T;
   }
+}
+
+/**
+ * Flattens a problem-details body to ONE line, so the failure survives
+ * `| tail -1` / log truncation. The daemon's 400s put a pretty-printed zod
+ * issue array in `detail`; that is rendered as `field: message; ...`.
+ */
+function summarizeProblem(problem: ProblemDetails | undefined): string | undefined {
+  if (!problem) return undefined;
+  const title = problem.title;
+  const detail = problem.detail;
+  if (detail === undefined) return title;
+
+  let summary = detail.replace(/\s+/g, " ").trim();
+  try {
+    const issues: unknown = JSON.parse(detail);
+    if (Array.isArray(issues) && issues.length > 0) {
+      summary = issues
+        .map((issue: { path?: unknown[]; message?: string }) => {
+          const field = Array.isArray(issue.path) ? issue.path.join(".") : "";
+          const message = issue.message ?? "invalid";
+          return field ? `${field}: ${message}` : message;
+        })
+        .join("; ");
+    }
+  } catch {
+    // Not JSON — a plain-text detail, already collapsed to one line above.
+  }
+  return title && title !== summary ? `${title} — ${summary}` : summary;
 }

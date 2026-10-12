@@ -10,6 +10,9 @@ import { registerAgentRoutes } from "./routes/agents.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
 import { registerClaimRoutes } from "./routes/claims.js";
 import { registerEventRoutes } from "./routes/events.js";
+import { registerMessageRoutes } from "./routes/messages.js";
+import { registerLockRoutes } from "./routes/locks.js";
+import { registerRepositoryRoutes } from "./routes/repositories.js";
 
 export interface BuildServerOptions {
   storage: StorageAdapter;
@@ -94,6 +97,9 @@ export function buildServer(options: BuildServerOptions): BuiltServer {
     registerTaskRoutes(app, storage, engine, broadcaster, metrics, rateLimiter);
     registerClaimRoutes(app, storage, broadcaster, rateLimiter);
     registerEventRoutes(app, storage, broadcaster);
+    registerMessageRoutes(app, storage, broadcaster, rateLimiter);
+    registerLockRoutes(app, storage, broadcaster, rateLimiter);
+    registerRepositoryRoutes(app, storage, broadcaster, rateLimiter);
   });
 
   const sweepExpiredLeases = () => {

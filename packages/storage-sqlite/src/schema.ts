@@ -194,4 +194,55 @@ CREATE TABLE IF NOT EXISTS tokens (
   revoked_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tokens_hash ON tokens(token_hash);
+
+-- Agent collaboration records. messages, message_acks, task_revisions and
+-- task_notes are append-only: the adapter has no UPDATE or DELETE for them.
+CREATE TABLE IF NOT EXISTS messages (
+  message_id TEXT PRIMARY KEY,
+  from_agent_id TEXT NOT NULL,
+  to_agent_id TEXT NOT NULL,
+  repository_id TEXT,
+  task_id TEXT,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_agent_id);
+
+CREATE TABLE IF NOT EXISTS message_acks (
+  message_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  acked_at TEXT NOT NULL,
+  PRIMARY KEY (message_id, agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS task_revisions (
+  revision_id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  changed_by TEXT,
+  changed_at TEXT NOT NULL,
+  changes TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_revisions_task ON task_revisions(task_id);
+
+CREATE TABLE IF NOT EXISTS task_notes (
+  note_id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_notes_task ON task_notes(task_id);
+
+CREATE TABLE IF NOT EXISTS path_locks (
+  lock_id TEXT PRIMARY KEY,
+  repository_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  task_id TEXT,
+  paths TEXT NOT NULL,
+  acquired_at TEXT NOT NULL,
+  heartbeat_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  released_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_path_locks_repo ON path_locks(repository_id, released_at);
 `;

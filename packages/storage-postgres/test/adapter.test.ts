@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { CoordinationEngine, GitameshError } from "@gitamesh/core";
 import type { Task } from "@gitamesh/protocol";
 import {
@@ -12,8 +12,10 @@ import {
  * `PostgresStorageAdapter`, backed by an embedded in-process Postgres
  * (`@electric-sql/pglite`) instead of a real server — see this package's
  * README for why pglite was verified and adopted as the default test
- * backend. Every adapter created here is closed in `afterEach` because
- * each one owns a real worker_thread + connection.
+ * backend. Every adapter created here is closed in `afterEach`. Embedded
+ * Postgres instances are never freed (that crashes V8 on Linux); a closed
+ * adapter's instance is reset and reused (see `idleEmbedded` in
+ * `src/worker.ts`).
  */
 
 let counter = 0;
@@ -48,6 +50,12 @@ function freshStorage(): PostgresStorageAdapter {
   openAdapters.push(storage);
   return storage;
 }
+
+// Boot the embedded Postgres here so its cold start (several seconds on a
+// loaded CI runner) is not charged to whichever test happens to run first.
+beforeAll(() => {
+  createEmbeddedPostgresStorageForTests().close();
+}, 60_000);
 
 afterEach(() => {
   while (openAdapters.length > 0) {
@@ -304,5 +312,63 @@ describe("daemon-facing surface (agents, claims, tokens, events cursor)", () => 
     expect(storage.lookupIdempotentResult("k1")).toBeUndefined();
     storage.recordIdempotentResult("k1", { ok: true, n: 3 });
     expect(storage.lookupIdempotentResult("k1")).toEqual({ ok: true, n: 3 });
+  });
+});
+
+describe("embedded test backend isolation", () => {
+  it("a new adapter starts empty even though the embedded Postgres is reused", () => {
+    const first = freshStorage();
+    first.saveTask(buildTask({ task_id: "left_behind" }));
+    expect(first.nextFencingToken("repo_1")).toBe(1);
+    expect(first.nextFencingToken("repo_1")).toBe(2);
+    first.close();
+
+    const second = freshStorage();
+    expect(second.getTask("left_behind")).toBeUndefined();
+    expect(second.listTasks()).toEqual([]);
+    expect(second.latestEventCursor()).toBe(0);
+    // Counters are reset too, not only rows.
+    expect(second.nextFencingToken("repo_1")).toBe(1);
+  });
+
+  it("close() is safe to call twice", () => {
+    const storage = freshStorage();
+    storage.close();
+    expect(() => storage.close()).not.toThrow();
+  });
+});
+
+describe("two live adapters in one process do not share state", () => {
+  it("each embedded adapter keeps its own data while the other is open", () => {
+    const a = freshStorage();
+    a.saveTask(buildTask({ task_id: "only_in_a" }));
+
+    const b = freshStorage();
+    expect(b.listTasks()).toEqual([]);
+    b.saveTask(buildTask({ task_id: "only_in_b" }));
+
+    expect(a.getTask("only_in_a")).toBeDefined();
+    expect(a.getTask("only_in_b")).toBeUndefined();
+    expect(b.getTask("only_in_a")).toBeUndefined();
+    expect(b.getTask("only_in_b")).toBeDefined();
+  });
+
+  it("closing one adapter leaves the other usable", () => {
+    const a = freshStorage();
+    const b = freshStorage();
+    a.saveTask(buildTask({ task_id: "kept" }));
+    b.close();
+    expect(a.getTask("kept")).toBeDefined();
+    a.saveTask(buildTask({ task_id: "kept_2" }));
+    expect(a.listTasks()).toHaveLength(2);
+  });
+
+  it("a closed adapter refuses further use instead of touching another's connection", () => {
+    const a = freshStorage();
+    const b = freshStorage();
+    a.close();
+    expect(() => a.getTask("x")).toThrow();
+    b.saveTask(buildTask({ task_id: "b_ok" }));
+    expect(b.getTask("b_ok")).toBeDefined();
   });
 });

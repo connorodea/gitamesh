@@ -12,6 +12,7 @@ interface RawWorktreeBlock {
   branch: string | null;
   detached: boolean;
   bare: boolean;
+  prunable: boolean;
 }
 
 /**
@@ -58,6 +59,7 @@ export function parseWorktreePorcelain(porcelain: string): RawWorktreeBlock[] {
         branch: null,
         detached: false,
         bare: false,
+        prunable: false,
       };
       continue;
     }
@@ -80,8 +82,11 @@ export function parseWorktreePorcelain(porcelain: string): RawWorktreeBlock[] {
       case "bare":
         current.bare = true;
         break;
+      case "prunable":
+        current.prunable = true;
+        break;
       default:
-        // locked / prunable / lock reasons etc. — not modeled yet.
+        // locked / lock reasons etc. — not modeled yet.
         break;
     }
   }
@@ -126,8 +131,9 @@ export async function listWorktrees(cwd: string): Promise<Worktree[]> {
   const now = new Date().toISOString();
 
   for (const block of blocks) {
-    if (block.bare) {
+    if (block.bare || block.prunable) {
       // Bare repositories have no working tree to report dirtiness for.
+      // Prunable entries point at worktrees that no longer exist on disk.
       continue;
     }
 

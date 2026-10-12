@@ -5,6 +5,11 @@ import type {
   Lease,
   EventEnvelope,
   Agent,
+  Message,
+  TaskRevision,
+  TaskNote,
+  PathLock,
+  Repository,
 } from "@gitamesh/protocol";
 
 /**
@@ -118,6 +123,16 @@ export interface StorageAdapter {
   /** Current maximum event cursor, or 0 if no events exist yet. */
   latestEventCursor(): number;
 
+  // --- Repositories (daemon-facing; no delete) -----------------------------
+  getRepository(repositoryId: string): Repository | undefined;
+  /**
+   * Inserts or updates a repository. `created_at` and `namespace_id` are
+   * fixed by the first save; later saves cannot move them.
+   */
+  saveRepository(repository: Repository): void;
+  /** Every repository, oldest first (`created_at`, then `repository_id`). */
+  listRepositories(): Repository[];
+
   // --- Agents (daemon-facing) ---------------------------------------------
   getAgent(agentId: string): Agent | undefined;
   saveAgent(agent: Agent): void;
@@ -132,6 +147,34 @@ export interface StorageAdapter {
   getResourceClaim(claimId: string): ResourceClaim | undefined;
   /** Manually releases a single claim. Returns false if it did not exist or was already released. */
   releaseResourceClaim(claimId: string): boolean;
+
+  // --- Attempts: daemon-facing listing (owner visibility) -----------------
+  /** Every attempt whose status is created/leased/running, across all tasks. */
+  listActiveAttempts(): TaskAttempt[];
+
+  // --- Messages (append-only: no update, no delete) -----------------------
+  /** Inserts a new message. `message.acked_by` is ignored; acks go through `ackMessage`. */
+  appendMessage(message: Message): void;
+  getMessage(messageId: string): Message | undefined;
+  /** Messages in creation order, optionally limited to a repository and/or `created_at > since`. */
+  listMessages(filter?: { repositoryId?: string; since?: string }): Message[];
+  /** Records that `agentId` read the message. Returns false if that agent had already acked it. */
+  ackMessage(messageId: string, agentId: string, ackedAtIso: string): boolean;
+
+  // --- Task history (append-only: no update, no delete) -------------------
+  appendTaskRevision(revision: TaskRevision): void;
+  /** Revisions for a task, oldest first. */
+  listTaskRevisions(taskId: string): TaskRevision[];
+  appendTaskNote(note: TaskNote): void;
+  /** Notes for a task, oldest first. */
+  listTaskNotes(taskId: string): TaskNote[];
+
+  // --- Path locks ----------------------------------------------------------
+  /** Inserts or updates a lock. Locks are never deleted: release sets `released_at`. */
+  savePathLock(lock: PathLock): void;
+  getPathLock(lockId: string): PathLock | undefined;
+  /** Locks with `released_at` null (expired ones included — the caller compares `expires_at`). */
+  listUnreleasedPathLocks(repositoryId?: string): PathLock[];
 
   // --- Tokens (daemon-only auth) ----------------------------------------
   saveToken(token: StoredToken): void;

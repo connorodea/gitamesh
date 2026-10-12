@@ -193,3 +193,71 @@ export function taskNotFound(taskId: string): GitameshError {
     extensions: { task_id: taskId },
   });
 }
+
+export function taskDependenciesIncomplete(params: {
+  taskId: string;
+  joinPolicy: string;
+  waitingOn: Array<{ task_id: string; status: string }>;
+}): GitameshError {
+  const list = params.waitingOn
+    .map((dep) => `${dep.task_id} (${dep.status})`)
+    .join(", ");
+  return new GitameshError({
+    type: `${PROBLEM_BASE}/task-dependencies-incomplete`,
+    title: "Task dependencies not complete",
+    status: 409,
+    detail: `Task ${params.taskId} cannot be claimed yet: it waits on ${list}.`,
+    extensions: {
+      task_id: params.taskId,
+      join_policy: params.joinPolicy,
+      waiting_on: params.waitingOn,
+    },
+  });
+}
+
+export function invalidDependencies(params: {
+  taskId?: string;
+  reason: string;
+}): GitameshError {
+  return new GitameshError({
+    type: `${PROBLEM_BASE}/invalid-dependencies`,
+    title: "Invalid task dependencies",
+    status: 422,
+    detail: params.reason,
+    extensions: { task_id: params.taskId },
+  });
+}
+
+export function pathLockConflict(params: {
+  path: string;
+  conflictingPath: string;
+  lockId: string;
+  holderAgentId: string;
+  holderDisplayName: string;
+  expiresAt: string;
+}): GitameshError {
+  return new GitameshError({
+    type: `${PROBLEM_BASE}/path-lock-conflict`,
+    title: "Path already locked",
+    status: 409,
+    detail: `Path "${params.path}" overlaps "${params.conflictingPath}", locked by ${params.holderDisplayName} (${params.holderAgentId}) until ${params.expiresAt} (lock ${params.lockId}).`,
+    extensions: {
+      path: params.path,
+      conflicting_path: params.conflictingPath,
+      lock_id: params.lockId,
+      holder_agent_id: params.holderAgentId,
+      holder_display_name: params.holderDisplayName,
+      expires_at: params.expiresAt,
+    },
+  });
+}
+
+export function invalidPathGlob(params: { path: string; reason: string }): GitameshError {
+  return new GitameshError({
+    type: `${PROBLEM_BASE}/invalid-path-glob`,
+    title: "Invalid lock path",
+    status: 400,
+    detail: `Lock path "${params.path}" is invalid: ${params.reason}`,
+    extensions: { path: params.path, reason: params.reason },
+  });
+}

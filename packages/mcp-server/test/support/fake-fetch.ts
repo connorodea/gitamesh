@@ -7,7 +7,7 @@ export interface RouteHandler {
   networkError?: boolean;
 }
 
-export type RouteKey = `${"GET" | "POST"} ${string}`;
+export type RouteKey = `${"GET" | "POST" | "PATCH"} ${string}`;
 
 /**
  * A tiny fake `fetch` keyed by `"METHOD /path"` (path only, no query
@@ -24,7 +24,7 @@ export function createFakeFetch(routes: Partial<Record<RouteKey, RouteHandler>>)
 
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(typeof input === "string" ? input : input.toString());
-    const method = (init?.method ?? "GET") as "GET" | "POST";
+    const method = (init?.method ?? "GET") as "GET" | "POST" | "PATCH";
     const key = `${method} ${url.pathname}` as RouteKey;
     const headers = (init?.headers ?? {}) as Record<string, string>;
     const body = init?.body ? JSON.parse(init.body as string) : undefined;

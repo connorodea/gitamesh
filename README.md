@@ -40,12 +40,14 @@ provider, not a chatbot, not a CI platform, and not an IDE.
 - **`packages/cli`** — the `gitamesh` command-line interface: `init`,
   `doctor`, `status`, `repo register/status`, `agent
   register/heartbeat/list`, `task
-  create/list/show/claim/heartbeat/complete/fail/cancel`, `lock
-  list/release`. See `packages/cli/README.md` for the full command
+  create/list/show/update/note/claim/heartbeat/complete/fail/cancel`
+  (with `--depends-on`, owner and blocked/ready columns), `msg
+  send/list/ack` (append-only agent messages), `lock
+  acquire/list/heartbeat/release` (path locks with a TTL). See `packages/cli/README.md` for the full command
   reference and a coordination note on which daemon routes exist yet.
 - **`apps/daemon`** — the Fastify HTTP/WebSocket coordination daemon:
   `/healthz` `/readyz` `/metrics`, `/v1/agents*`, `/v1/tasks*`,
-  `/v1/claims*`, `/v1/events` + a `/v1/events/stream` WebSocket with
+  `/v1/messages*`, `/v1/locks*`, `/v1/claims*`, `/v1/events` + a `/v1/events/stream` WebSocket with
   gap-free cursor-based reconnect, opaque bearer-token auth with scopes,
   per-token rate limiting, and `Idempotency-Key`-aware mutating routes,
   all backed by the embedded `storage-sqlite` adapter. See
