@@ -51,8 +51,10 @@ gitamesh agent list [--json]
 gitamesh task create --workflow-id --repository-id --title [--description] [--priority] [--branch] [--base-sha] [--required-capability ...] [--depends-on <taskId> ...] [--join-policy all|any] [--idempotency-key] [--json]
 gitamesh task list [--repository-id] [--status] [--mine --agent-id <id>] [--unclaimed] [--json]
 gitamesh task show <taskId> [--json]       task + owner + notes + revision history
-gitamesh task update <taskId> [--title] [--description <text|@file|->] [--priority] [--branch] [--base-sha] [--depends-on <taskId> ...] [--clear-dependencies] [--agent-id] [--json]
+gitamesh task update <taskId> [--title] [--description <text|@file|->] [--priority] [--branch] [--base-sha] [--depends-on <taskId> ...] [--clear-dependencies] [--expect-depends-on <taskId> ... | --expect-no-dependencies] [--agent-id] [--json]
 gitamesh task note <taskId> --agent-id --body <text|@file|-> [--json]
+gitamesh task progress <taskId> --attempt-id <id> --fencing-token <n> --summary <text|@file|-> --phase <working|blocked|verifying|ready_for_review> [--evidence <text> ...] [--idempotency-key] [--json]
+gitamesh task progress-list <taskId> [--since <cursor>] [--limit <n>] [--json]
 gitamesh task claim <taskId> --agent-id --workspace-session-id [--resource <type:mode:key> ...] [--json]
 gitamesh task heartbeat <taskId> --attempt-id --fencing-token [--json]
 gitamesh task complete <taskId> --attempt-id --fencing-token [--json]
@@ -109,6 +111,7 @@ Read it with `2>&1 | head -1`, not `tail -1`.
   writes one revision (`changed_by`, `changed_at`, `field: old -> new`);
   a call whose values match the current ones writes none. Pass
   `--agent-id` so the revision says who made the change.
+- `task progress` reports progress on a task you hold (attempt id and fencing token come from `claim`); the daemon refuses it with 409 once the lease expired or was superseded, and it never renews the lease. `task progress-list` reads the reports back. `task update --expect-depends-on` / `--expect-no-dependencies` make a dependency edit a compare-and-set: it fails with 409 if someone changed the dependencies since you read them.
 - `task note` appends a progress note. `task show` prints notes and
   revisions, oldest first. Neither can be edited or deleted.
 

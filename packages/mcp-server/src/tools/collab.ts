@@ -136,6 +136,12 @@ export const UpdateTaskInputSchema = z.object({
     .array(id)
     .optional()
     .describe("Replaces the whole dependency list; [] clears it."),
+  expectedDependencies: z
+    .array(id)
+    .optional()
+    .describe(
+      "Compare-and-set: the dependency list you last read ([] for none). If it is no longer current the update fails with 409 dependencies-changed. Only valid together with dependencies.",
+    ),
   agentId: id.optional().describe("Recorded in the revision history as who made the change."),
 });
 export const UpdateTaskOutputSchema = output({
@@ -156,6 +162,12 @@ export async function handleUpdateTask(
   if (input.branch !== undefined) body.branch = input.branch;
   if (input.baseSha !== undefined) body.base_sha = input.baseSha;
   if (input.dependencies !== undefined) body.dependencies = input.dependencies;
+  if (input.expectedDependencies !== undefined) {
+    if (input.dependencies === undefined) {
+      return invalidInputError("expectedDependencies is only valid together with dependencies.");
+    }
+    body.expected_dependencies = input.expectedDependencies;
+  }
   if (Object.keys(body).length === 0) {
     return invalidInputError(
       "Nothing to update: give title, description, priority, branch, baseSha or dependencies.",

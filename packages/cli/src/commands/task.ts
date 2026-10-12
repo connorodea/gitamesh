@@ -5,6 +5,8 @@ import type { CliDeps } from "../context.js";
 import { resolveBody } from "../body.js";
 import { CliError, printJson, printTable } from "../output.js";
 
+const PROGRESS_PHASES = ["working", "blocked", "verifying", "ready_for_review"];
+
 export interface TaskOwnerRecord {
   agent_id: string;
   display_name: string;
@@ -224,6 +226,83 @@ export function registerTaskCommands(program: Command, deps: CliDeps): void {
     });
 
   task
+    .command("progress <taskId>")
+    .description("Report progress on a task you hold. Needs the attempt id and fencing token from `claim`; never renews the lease")
+    .requiredOption("--attempt-id <id>", "attempt id returned by the claim")
+    .requiredOption("--fencing-token <n>", "fencing token returned by the claim")
+    .requiredOption("--summary <text|@file|->", "what happened: text, @path, or - for stdin")
+    .requiredOption("--phase <phase>", "working | blocked | verifying | ready_for_review")
+    .option("--evidence <text>", "supporting detail such as a log line or test name (repeatable)", collect, [] as string[])
+    .option("--idempotency-key <key>", "idempotency key for safe retries")
+    .option("--json", "machine-readable output", false)
+    .action(
+      async (
+        taskId: string,
+        options: {
+          attemptId: string;
+          fencingToken: string;
+          summary: string;
+          phase: string;
+          evidence: string[];
+          idempotencyKey?: string;
+          json: boolean;
+        },
+      ) => {
+        const fencingToken = Number(options.fencingToken);
+        if (!Number.isInteger(fencingToken) || fencingToken < 0) {
+          throw new CliError(`--fencing-token must be a non-negative integer, got "${options.fencingToken}"`);
+        }
+        if (!PROGRESS_PHASES.includes(options.phase)) {
+          throw new CliError(`--phase must be one of ${PROGRESS_PHASES.join(", ")}, got "${options.phase}"`);
+        }
+        const summary = await resolveBody(options.summary, deps);
+        const { client } = await createClient(deps);
+        const result = (await client.reportTaskProgress(taskId, {
+          attemptId: options.attemptId,
+          fencingToken,
+          summary,
+          phase: options.phase,
+          evidence: options.evidence,
+        })) as { replayed: boolean };
+        if (options.json) {
+          printJson(deps.sink, result);
+        } else {
+          deps.sink.log(
+            result.replayed
+              ? `Progress for ${taskId} was already recorded (retry).`
+              : `Progress recorded for ${taskId} (${options.phase}).`,
+          );
+        }
+      },
+    );
+
+  task
+    .command("progress-list <taskId>")
+    .description("List the progress reports recorded for a task, oldest first")
+    .option("--since <cursor>", "only events after this cursor (use nextCursor from a previous call)")
+    .option("--limit <n>", "maximum events to scan")
+    .option("--json", "machine-readable output", false)
+    .action(async (taskId: string, options: { since?: string; limit?: string; json: boolean }) => {
+      const { client } = await createClient(deps);
+      const result = (await client.listTaskProgress(taskId, {
+        since: options.since,
+        limit: options.limit,
+      })) as {
+        events: Array<{ occurred_at: string; agent_id: string | null; payload: { summary: string; phase: string } }>;
+        nextCursor: number;
+      };
+      if (options.json) {
+        printJson(deps.sink, result);
+        return;
+      }
+      if (result.events.length === 0) deps.sink.log("(no progress reports)");
+      for (const e of result.events) {
+        deps.sink.log(`${e.occurred_at}  ${e.agent_id ?? "-"}  [${e.payload.phase}]`);
+        for (const line of e.payload.summary.split("\n")) deps.sink.log(`    ${line}`);
+      }
+    });
+
+  task
     .command("update <taskId>")
     .description("Change a task's title, description, priority, branch, base SHA or dependencies")
     .option("--title <title>", "new title")
@@ -238,6 +317,13 @@ export function registerTaskCommands(program: Command, deps: CliDeps): void {
       [] as string[],
     )
     .option("--clear-dependencies", "remove every dependency", false)
+    .option(
+      "--expect-depends-on <taskId>",
+      "only apply if the task's current dependencies are exactly these (repeatable); refuses with 409 if someone else changed them",
+      collect,
+      [] as string[],
+    )
+    .option("--expect-no-dependencies", "only apply if the task currently has no dependencies", false)
     .option("--agent-id <id>", "agent making the change (recorded in the revision history)")
     .option("--json", "machine-readable output", false)
     .action(
@@ -251,12 +337,21 @@ export function registerTaskCommands(program: Command, deps: CliDeps): void {
           baseSha?: string;
           dependsOn: string[];
           clearDependencies: boolean;
+          expectDependsOn: string[];
+          expectNoDependencies: boolean;
           agentId?: string;
           json: boolean;
         },
       ) => {
         if (options.clearDependencies && options.dependsOn.length > 0) {
           throw new CliError("--clear-dependencies and --depends-on cannot be used together");
+        }
+        if (options.expectNoDependencies && options.expectDependsOn.length > 0) {
+          throw new CliError("--expect-no-dependencies and --expect-depends-on cannot be used together");
+        }
+        const expecting = options.expectNoDependencies || options.expectDependsOn.length > 0;
+        if (expecting && options.dependsOn.length === 0 && !options.clearDependencies) {
+          throw new CliError("--expect-depends-on / --expect-no-dependencies need --depends-on or --clear-dependencies");
         }
         const body: Record<string, unknown> = {};
         if (options.title !== undefined) body.title = options.title;
@@ -274,6 +369,7 @@ export function registerTaskCommands(program: Command, deps: CliDeps): void {
         if (options.baseSha !== undefined) body.base_sha = options.baseSha;
         if (options.dependsOn.length > 0) body.dependencies = options.dependsOn;
         if (options.clearDependencies) body.dependencies = [];
+        if (expecting) body.expected_dependencies = options.expectNoDependencies ? [] : options.expectDependsOn;
         if (Object.keys(body).length === 0) {
           throw new CliError(
             "nothing to update: give --title, --description, --priority, --branch, --base-sha, --depends-on or --clear-dependencies",

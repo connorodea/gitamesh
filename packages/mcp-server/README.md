@@ -82,7 +82,9 @@ CLI's default) to avoid that.
 | `gitamesh_create_task` | Creates a task in a repository's workflow. |
 | `gitamesh_list_tasks` | Lists tasks with `owner` (who holds each, last heartbeat), `readiness` (`ready`/`blocked`) and `blocked_by`. Filters: `repositoryId`, `status`, `agentId` (tasks that agent holds), `unclaimed` (free to claim). |
 | `gitamesh_get_task` | One task with its owner, readiness, progress notes and revision history. |
-| `gitamesh_update_task` | Changes `title`, `description`, `priority`, `branch`, `baseSha` or `dependencies` (replaces the list; `[]` clears it). Each change writes an append-only revision; pass `agentId` so it names you. |
+| `gitamesh_update_task` | Changes `title`, `description`, `priority`, `branch`, `baseSha` or `dependencies` (replaces the list; `[]` clears it). Optional `expectedDependencies` (with `dependencies` only) makes it a compare-and-set: 409 `dependencies-changed` if the list is no longer the one you read. Each change writes an append-only revision; pass `agentId` so it names you. |
+| `gitamesh_report_progress` | Reports progress on a task you hold (`{ taskId, attemptId, fencingToken, summary, phase, evidence? }`). 409 once the lease expired or was superseded; never renews the lease. |
+| `gitamesh_list_task_progress` | Lists a task's progress reports (`{ taskId, since?, limit? }`) with `nextCursor`. |
 | `gitamesh_add_task_note` | Appends a progress note (`{ taskId, agentId, body }`). |
 | `gitamesh_claim_task` | Claims a task for an agent's workspace session, atomically acquiring any required resource locks. On conflict (already claimed / resource contention / not claimable / dependencies not complete) returns a **structured `ok:false` result**, never a thrown error. |
 | `gitamesh_heartbeat` | Renews an in-progress attempt's lease via its fencing token. |

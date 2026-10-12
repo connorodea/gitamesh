@@ -35,6 +35,14 @@ import {
   ReleaseLockInputSchema, handleReleaseLock,
 } from "./tools/collab.js";
 import {
+  ReportProgressInputSchema,
+  ReportProgressOutputSchema,
+  ListTaskProgressInputSchema,
+  ListTaskProgressOutputSchema,
+  handleReportProgress,
+  handleListTaskProgress,
+} from "./tools/progress.js";
+import {
   RegisterRepositoryInputSchema, handleRegisterRepository,
   ListRepositoriesInputSchema, handleListRepositories,
 } from "./tools/repositories.js";
@@ -240,6 +248,30 @@ export function createMcpServer(config: GitameshMcpConfig): McpServer {
       inputSchema: UpdateTaskInputSchema.shape,
     },
     async (input) => toCallToolResult(await handleUpdateTask(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_report_progress",
+    {
+      title: "Report task progress",
+      description:
+        "Records a progress report on a task you hold. Needs the attemptId and fencingToken from gitamesh_claim_task; fails with 409 once your lease expired or was superseded. Does not renew the lease (use gitamesh_heartbeat).",
+      inputSchema: ReportProgressInputSchema.shape,
+      outputSchema: ReportProgressOutputSchema as never,
+    },
+    async (input) => toCallToolResult(await handleReportProgress(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_list_task_progress",
+    {
+      title: "List task progress",
+      description:
+        "Lists the progress reports recorded for a task, oldest first, with a cursor for polling.",
+      inputSchema: ListTaskProgressInputSchema.shape,
+      outputSchema: ListTaskProgressOutputSchema as never,
+    },
+    async (input) => toCallToolResult(await handleListTaskProgress(input, client)),
   );
 
   server.registerTool(

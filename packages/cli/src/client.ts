@@ -136,6 +136,14 @@ export class GitameshClient {
     return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/cancel`, { body });
   }
 
+  async reportTaskProgress(taskId: string, body: Record<string, unknown>): Promise<unknown> {
+    return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/progress`, { body });
+  }
+
+  async listTaskProgress(taskId: string, query?: ListQuery): Promise<unknown> {
+    return this.request("GET", `/v1/tasks/${encodeURIComponent(taskId)}/progress`, { query });
+  }
+
   async updateTask(taskId: string, body: Record<string, unknown>): Promise<unknown> {
     return this.request("PATCH", `/v1/tasks/${encodeURIComponent(taskId)}`, { body });
   }

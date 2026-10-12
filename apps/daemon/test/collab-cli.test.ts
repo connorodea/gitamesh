@@ -621,3 +621,84 @@ describe("gitamesh lock", () => {
     expect(await cliJson<unknown[]>("lock", "list", "--claims", "--repository-id", "other")).toEqual([]);
   });
 });
+
+describe("gitamesh task progress", () => {
+  async function claimed(): Promise<{ taskId: string; attemptId: string; fencingToken: number }> {
+    const agent = await registerAgent("worker");
+    const taskId = await createTask("progress target");
+    const res = (await claimTask(taskId, agent)).json() as { attempt: { attempt_id: string }; fencingToken: number };
+    return { taskId, attemptId: res.attempt.attempt_id, fencingToken: res.fencingToken };
+  }
+
+  it("reports progress and lists it back", async () => {
+    const { taskId, attemptId, fencingToken } = await claimed();
+    const posted = await cliJson<{ progress: { event_type: string }; replayed: boolean }>(
+      "task", "progress", taskId,
+      "--attempt-id", attemptId, "--fencing-token", String(fencingToken),
+      "--summary", "parsed the manifest", "--phase", "verifying", "--evidence", "log line 1",
+    );
+    expect(posted.progress.event_type).toBe("task.progress");
+    expect(posted.replayed).toBe(false);
+
+    const listed = await cliJson<{ events: Array<{ payload: { summary: string; phase: string; evidence: string[] } }> }>(
+      "task", "progress-list", taskId,
+    );
+    expect(listed.events).toHaveLength(1);
+    expect(listed.events[0]!.payload).toEqual({ summary: "parsed the manifest", phase: "verifying", evidence: ["log line 1"] });
+  });
+
+  it("fails with a stale-token message and records nothing", async () => {
+    const { taskId, attemptId, fencingToken } = await claimed();
+    const line = await cliFailure(
+      "task", "progress", taskId,
+      "--attempt-id", attemptId, "--fencing-token", String(fencingToken + 1),
+      "--summary", "x", "--phase", "working",
+    );
+    expect(line).toMatch(/stale|fencing/i);
+    const listed = await cliJson<{ events: unknown[] }>("task", "progress-list", taskId);
+    expect(listed.events).toEqual([]);
+  });
+
+  it("rejects a bad --phase and a non-numeric --fencing-token before calling the daemon", async () => {
+    const { taskId, attemptId } = await claimed();
+    expect(await cliFailure("task", "progress", taskId, "--attempt-id", attemptId, "--fencing-token", "1", "--summary", "x", "--phase", "nope")).toMatch(/phase/);
+    expect(await cliFailure("task", "progress", taskId, "--attempt-id", attemptId, "--fencing-token", "abc", "--summary", "x", "--phase", "working")).toMatch(/fencing-token/);
+  });
+});
+
+describe("gitamesh task update --expect-depends-on", () => {
+  it("applies the edit when the expected set matches", async () => {
+    const a = await createTask("a");
+    const b = await createTask("b");
+    const t = await createTask("t", "--depends-on", a);
+    const updated = await cliJson<{ task: { dependencies: string[] } }>(
+      "task", "update", t, "--depends-on", b, "--expect-depends-on", a,
+    );
+    expect(updated.task.dependencies).toEqual([b]);
+  });
+
+  it("fails with a dependencies-changed message when the expected set is stale", async () => {
+    const a = await createTask("a");
+    const b = await createTask("b");
+    const t = await createTask("t", "--depends-on", a);
+    const line = await cliFailure("task", "update", t, "--depends-on", b, "--expect-no-dependencies");
+    expect(line).toMatch(/dependencies changed/i);
+    const shown = await cliJson<{ task: { dependencies: string[] } }>("task", "show", t);
+    expect(shown.task.dependencies).toEqual([a]);
+  });
+
+  it("--expect-no-dependencies matches an empty set", async () => {
+    const a = await createTask("a");
+    const t = await createTask("t");
+    const updated = await cliJson<{ task: { dependencies: string[] } }>(
+      "task", "update", t, "--depends-on", a, "--expect-no-dependencies",
+    );
+    expect(updated.task.dependencies).toEqual([a]);
+  });
+
+  it("refuses --expect-* without a dependency change, and both forms together", async () => {
+    const t = await createTask("t");
+    expect(await cliFailure("task", "update", t, "--title", "x", "--expect-no-dependencies")).toMatch(/--depends-on|--clear-dependencies/);
+    expect(await cliFailure("task", "update", t, "--depends-on", "z", "--expect-depends-on", "y", "--expect-no-dependencies")).toMatch(/cannot be used together/);
+  });
+});
