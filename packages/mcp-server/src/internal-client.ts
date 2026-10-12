@@ -157,6 +157,20 @@ export class DaemonClient {
     return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/fail`, { body });
   }
 
+  reportProgress(
+    taskId: string,
+    body: Record<string, unknown>,
+  ): Promise<DaemonResult<{ progress: unknown; replayed: boolean }>> {
+    return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/progress`, { body });
+  }
+
+  listTaskProgress(
+    taskId: string,
+    query?: Record<string, string | number | undefined>,
+  ): Promise<DaemonResult<{ events: unknown[]; nextCursor: number }>> {
+    return this.request("GET", `/v1/tasks/${encodeURIComponent(taskId)}/progress`, { query });
+  }
+
   updateTask(
     taskId: string,
     body: Record<string, unknown>,
