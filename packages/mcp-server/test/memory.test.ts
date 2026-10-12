@@ -2,8 +2,8 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { LoopMemClient, executeLoopMem, memoryNamespace, type LoopMemExecutor } from "../src/loopmem-client.js";
-import { handleMemoryRemember, handleMemoryRecall, handleMemoryContext, MemoryRememberInputSchema } from "../src/tools/memory.js";
+import { LoopMemClient, executeLoopMem, memoryNamespace, type Memory, type LoopMemExecutor } from "../src/loopmem-client.js";
+import { handleMemoryRemember, handleMemoryRecall, handleMemoryContext, MemoryRememberInputSchema, MemoryRecallInputSchema } from "../src/tools/memory.js";
 import { resolveConfig } from "../src/config.js";
 import { createMcpServer } from "../src/server.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -84,11 +84,25 @@ describe("LoopMem command bridge", () => {
     const page = { namespace, memories: [stored], total_matches: 1, has_more: false };
     const { client, calls } = fakeClient([status, page, stored, "# Shared context\n"]);
     expect(await client.initialize(repositoryId, "Shared facts")).toEqual(status);
-    expect(await client.recall(repositoryId, { query: "saved", kind: "fact", agentId: "agent-a", workspaceSessionId: "session-a", includeSuperseded: true, limit: 8 })).toEqual(page);
+    expect(await client.recall(repositoryId, { query: "saved", kind: "fact", agentId: "agent-a", workspaceSessionId: "session-a", includeSuperseded: true, beforeId: 10, limit: 8 })).toEqual(page);
     expect(await client.get(repositoryId, 1)).toEqual(stored);
     expect(await client.context(repositoryId)).toBe("# Shared context\n");
-    expect(calls[1]).toEqual(expect.arrayContaining(["--query=saved", "--include-superseded", "--limit=8"]));
+    expect(calls[1]).toEqual(expect.arrayContaining(["--query=saved", "--include-superseded", "--before-id=10", "--limit=8"]));
     expect(calls[2]?.slice(-2)).toEqual(["get", "1"]);
+  });
+
+  it("accepts only positive safe-integer recall cursors before spawning", async () => {
+    for (const beforeId of [1, Number.MAX_SAFE_INTEGER]) {
+      expect(MemoryRecallInputSchema.safeParse({ repositoryId, beforeId }).success).toBe(true);
+    }
+    for (const beforeId of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, Infinity, NaN]) {
+      const { client, calls } = fakeClient([]);
+      expect(MemoryRecallInputSchema.safeParse({ repositoryId, beforeId }).success).toBe(false);
+      const result = await handleMemoryRecall({ repositoryId, beforeId }, client);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.type).toContain("invalid-input");
+      expect(calls).toHaveLength(0);
+    }
   });
 
   it("rejects malformed responses, wrong namespaces, and false provenance", async () => {
@@ -180,6 +194,58 @@ describe.runIf(Boolean(process.env.LOOPMEM_TEST_BIN))("real LoopMem shared-memor
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it("pages large records below the transport limit without duplicate or newer IDs", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "gitamesh-loopmem-pages-"));
+    const pageBytes: number[] = [];
+    const execute: LoopMemExecutor = async (executable, args, limits) => {
+      const output = await executeLoopMem(executable, args, limits);
+      if (args.includes("recall")) pageBytes.push(Buffer.byteLength(output, "utf8"));
+      return output;
+    };
+    const options = { executable: process.env.LOOPMEM_TEST_BIN!, storeRoot: root };
+    const writer = new LoopMemClient(options);
+    const reader = new LoopMemClient({ ...options, execute });
+    await writer.initialize(repositoryId, "Retrieve all large records across pages");
+    const originals: Memory[] = [];
+    for (let index = 0; index < 8; index += 1) {
+      originals.push(await writer.remember(repositoryId, {
+        kind: "fact", text: String(index).repeat(65_536), evidence: ["e".repeat(65_536)],
+        agentId: `agent-${index % 2}`, workspaceSessionId: `session-${index}`,
+      }));
+    }
+
+    const retrieved: Memory[] = [];
+    let beforeId: number | undefined;
+    let appendedId: number | undefined;
+    for (let pageNumber = 0; pageNumber < originals.length; pageNumber += 1) {
+      const result = await handleMemoryRecall({ repositoryId, limit: 500, beforeId }, reader);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error("Expected a successful memory page");
+      expect(Object.keys(result).sort()).toEqual(["has_more", "memories", "namespace", "ok", "total_matches"]);
+      expect(result.total_matches).toBe(originals.filter((record) => beforeId === undefined || record.id < beforeId).length);
+      expect(result.memories.length).toBeGreaterThan(0);
+      expect(result.memories.every((record) => beforeId === undefined || record.id < beforeId)).toBe(true);
+      retrieved.push(...result.memories);
+      if (pageNumber === 0) {
+        expect(result.has_more).toBe(true);
+        expect(result.memories.length).toBeLessThan(originals.length);
+        appendedId = (await writer.remember(repositoryId, {
+          kind: "fact", text: "New write after the first page", agentId: "agent-new", workspaceSessionId: "session-new",
+        })).id;
+      }
+      if (!result.has_more) break;
+      beforeId = result.memories.at(-1)!.id;
+    }
+
+    expect(pageBytes.length).toBeGreaterThan(1);
+    expect(pageBytes.every((bytes) => bytes <= 1_000_000)).toBe(true);
+    expect(retrieved).toEqual([...originals].reverse());
+    expect(new Set(retrieved.map((record) => record.id)).size).toBe(originals.length);
+    expect(retrieved.some((record) => record.id === appendedId)).toBe(false);
+    expect((await reader.recall(repositoryId, { limit: 1 })).memories[0]?.id).toBe(appendedId);
+  });
+
 });
 
 
@@ -196,6 +262,12 @@ describe("MCP memory tool registration", () => {
         "gitamesh_memory_init", "gitamesh_memory_remember", "gitamesh_memory_recall",
         "gitamesh_memory_get", "gitamesh_memory_context",
       ]));
+      const recall = tools.tools.find((tool) => tool.name === "gitamesh_memory_recall")!;
+      expect(recall.inputSchema.properties?.beforeId).toMatchObject({
+        type: "integer", exclusiveMinimum: 0, maximum: Number.MAX_SAFE_INTEGER,
+      });
+      expect(recall.inputSchema.required).not.toContain("beforeId");
+      expect(recall.description).toContain("beforeId");
       const result = await client.callTool({ name: "gitamesh_memory_recall", arguments: { repositoryId: "repo-one" } });
       expect(result.isError).toBe(true);
       expect(result.structuredContent).toMatchObject({ ok: false, error: {

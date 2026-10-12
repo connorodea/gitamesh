@@ -25,6 +25,7 @@ export const MemoryRecallInputSchema = z.object({
   agentId: ProvenanceIdSchema.optional(),
   workspaceSessionId: ProvenanceIdSchema.optional(),
   includeSuperseded: z.boolean().optional(),
+  beforeId: z.number().int().positive().safe().optional(),
   limit: z.number().int().min(1).max(500).optional(),
 });
 export const MemoryGetInputSchema = z.object({ ...BaseInput, id: z.number().int().positive().safe() });
