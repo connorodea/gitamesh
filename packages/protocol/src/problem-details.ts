@@ -228,6 +228,28 @@ export function invalidDependencies(params: {
   });
 }
 
+/**
+ * An edit of a task's dependencies named a previous set that is no longer the
+ * current one: someone else changed them since the caller last read the task.
+ */
+export function dependenciesChanged(params: {
+  taskId: string;
+  expected: string[];
+  current: string[];
+}): GitameshError {
+  return new GitameshError({
+    type: `${PROBLEM_BASE}/dependencies-changed`,
+    title: "Task dependencies changed",
+    status: 409,
+    detail: `Task ${params.taskId} dependencies changed since they were read; read the task and retry.`,
+    extensions: {
+      task_id: params.taskId,
+      expected_dependencies: params.expected,
+      current_dependencies: params.current,
+    },
+  });
+}
+
 export function pathLockConflict(params: {
   path: string;
   conflictingPath: string;

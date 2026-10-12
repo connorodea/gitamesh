@@ -47,7 +47,12 @@ export function requireAgent(storage: StorageAdapter, agentId: string): Agent {
 export function emitEvent(
   storage: StorageAdapter,
   event: Pick<EventEnvelope, "event_type" | "namespace_id" | "payload"> &
-    Partial<Pick<EventEnvelope, "repository_id" | "workflow_id" | "task_id" | "agent_id">>,
+    Partial<
+      Pick<
+        EventEnvelope,
+        "repository_id" | "workflow_id" | "task_id" | "attempt_id" | "agent_id" | "workspace_session_id"
+      >
+    >,
 ): void {
   storage.appendEvent({
     schema_version: 1,
@@ -57,9 +62,9 @@ export function emitEvent(
     repository_id: event.repository_id ?? null,
     workflow_id: event.workflow_id ?? null,
     task_id: event.task_id ?? null,
-    attempt_id: null,
+    attempt_id: event.attempt_id ?? null,
     agent_id: event.agent_id ?? null,
-    workspace_session_id: null,
+    workspace_session_id: event.workspace_session_id ?? null,
     correlation_id: null,
     causation_id: null,
     idempotency_key: null,

@@ -5,11 +5,13 @@ import { TASK_UPDATABLE_FIELDS } from "@gitamesh/protocol";
 import {
   CoordinationEngine,
   assertValidDependencies,
+  currentProgressAttempt,
   dependencyState,
   canTransitionTask,
   canTransitionAttempt,
   taskNotFound as taskNotFoundError,
   invalidStateTransition,
+  dependenciesChanged,
 } from "@gitamesh/core";
 import type { StorageAdapter } from "@gitamesh/core";
 import { requireScope } from "../auth.js";
@@ -43,10 +45,41 @@ const UpdateTaskBody = z
     branch: z.string().nullable().optional(),
     base_sha: z.string().nullable().optional(),
     dependencies: z.array(z.string().min(1)).optional(),
+    /**
+     * Compare-and-set for `dependencies`: the set the caller last read. If it
+     * differs from the current one the edit is refused with 409, so a stale
+     * read cannot overwrite a concurrent edit. Compared as a set.
+     */
+    expected_dependencies: z.array(z.string().min(1)).optional(),
     /** Agent id recorded on the revision as who made the change. */
     updated_by: z.string().min(1).optional(),
   })
+  .strict()
+  .refine((body) => body.expected_dependencies === undefined || body.dependencies !== undefined, {
+    message: "expected_dependencies is only valid together with dependencies",
+    path: ["expected_dependencies"],
+  });
+
+const ProgressBody = z
+  .object({
+    attemptId: z.string().min(1),
+    fencingToken: z.number().int().nonnegative(),
+    summary: z.string().trim().min(1).max(8_000),
+    phase: z.enum(["working", "blocked", "verifying", "ready_for_review"]),
+    evidence: z.array(z.string().trim().min(1).max(2_000)).max(20).default([]),
+  })
   .strict();
+
+const ProgressQuery = z.object({
+  since: z.coerce.number().int().min(0).default(0),
+  limit: z.coerce.number().int().min(1).max(500).default(200),
+});
+
+const sameSet = (a: readonly string[], b: readonly string[]): boolean => {
+  const left = [...new Set(a)].sort();
+  const right = [...new Set(b)].sort();
+  return left.length === right.length && left.every((id, i) => id === right[i]);
+};
 
 const AddNoteBody = z.object({
   agent_id: z.string().min(1),
@@ -290,6 +323,13 @@ export function registerTaskRoutes(
           const task = storage.getTask(taskId);
           if (!task) throw taskNotFoundError(taskId);
           if (parsed.data.updated_by) requireAgent(storage, parsed.data.updated_by);
+          if (parsed.data.expected_dependencies && !sameSet(parsed.data.expected_dependencies, task.dependencies)) {
+            throw dependenciesChanged({
+              taskId,
+              expected: parsed.data.expected_dependencies,
+              current: task.dependencies,
+            });
+          }
 
           const changes: TaskRevision["changes"] = {};
           const updated: Task = { ...task };
@@ -419,6 +459,77 @@ export function registerTaskRoutes(
         if (isClaimConflict(err)) metrics.incrementClaimConflicts();
         return sendError(reply, err);
       }
+    },
+  );
+
+  app.post(
+    "/v1/tasks/:taskId/progress",
+    { preHandler: requireScope(storage, "task:claim", { rateLimiter }) },
+    async (request, reply) => {
+      const { taskId } = request.params as { taskId: string };
+      const parsed = ProgressBody.safeParse(request.body);
+      if (!parsed.success) return sendInvalidRequest(reply, parsed.error);
+      try {
+        const { result, replayed } = storage.transaction(() =>
+          withIdempotency(storage, `task-progress:${taskId}`, getIdempotencyKey(request), () => {
+            const attempt = currentProgressAttempt(
+              storage,
+              taskId,
+              parsed.data.attemptId,
+              parsed.data.fencingToken,
+            );
+            const task = storage.getTask(taskId)!;
+            return storage.appendEvent({
+              schema_version: 1,
+              event_type: "task.progress",
+              occurred_at: storage.now(),
+              namespace_id: task.repository_id,
+              repository_id: task.repository_id,
+              workflow_id: task.workflow_id,
+              task_id: taskId,
+              attempt_id: attempt.attempt_id,
+              agent_id: attempt.agent_id,
+              workspace_session_id: attempt.workspace_session_id,
+              correlation_id: null,
+              causation_id: null,
+              idempotency_key: getIdempotencyKey(request) ?? null,
+              payload: {
+                summary: parsed.data.summary,
+                phase: parsed.data.phase,
+                evidence: parsed.data.evidence,
+              },
+              metadata: {},
+            });
+          }),
+        );
+        if (!replayed) broadcaster.notifyNew();
+        reply.code(201);
+        return { progress: result, replayed };
+      } catch (err) {
+        return sendError(reply, err);
+      }
+    },
+  );
+
+  app.get(
+    "/v1/tasks/:taskId/progress",
+    { preHandler: requireScope(storage, "task:read") },
+    async (request, reply) => {
+      const { taskId } = request.params as { taskId: string };
+      const parsed = ProgressQuery.safeParse(request.query);
+      if (!parsed.success) return sendInvalidRequest(reply, parsed.error);
+      const task = storage.getTask(taskId);
+      if (!task) return sendError(reply, taskNotFoundError(taskId));
+      // The cursor advances over every scanned event, matching or not, so a
+      // caller never re-reads or skips events between pages.
+      const page = storage.listEventsSince(parsed.data.since, {
+        repositoryId: task.repository_id,
+        limit: parsed.data.limit,
+      });
+      return {
+        events: page.events.filter((e) => e.task_id === taskId && e.event_type === "task.progress"),
+        nextCursor: page.nextCursor,
+      };
     },
   );
 
