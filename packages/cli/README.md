@@ -14,6 +14,12 @@ runs this CLI against a real in-memory daemon to keep the two in step.
 clone's local id (the `repository_id` that `repo status` prints), and a
 second call returns the stored record with `replayed: true`.
 
+`task create`, `msg send --repository-id` and `lock acquire` print a
+`warning:` line on stderr when the daemon reports that the repository id
+is not registered (the write still succeeds unless the daemon runs with
+`GITAMESH_UNREGISTERED_REPOSITORY=refuse`). Run `gitamesh repo register`
+in that repository, and check `gitamesh repo list` for the right id.
+
 **Default daemon port**: `4477` (`http://127.0.0.1:4477`), chosen by this
 CLI as a placeholder since `apps/daemon` did not yet have a committed
 `src/index.ts` HTTP entry point (i.e. no confirmed bound port) at the time
@@ -42,6 +48,7 @@ gitamesh doctor [--json]                   git repo / daemon reachability / toke
 gitamesh status [--json]                   doctor checks + this repo's tasks, claims (who holds what), path locks
 
 gitamesh repo register [--display-name] [--namespace-id] [--json]
+gitamesh repo list [--json]                repositories registered with the daemon, oldest first
 gitamesh repo status [--json]              worktrees for the current repo — NO daemon required
 
 gitamesh agent register --display-name --runtime [--namespace-id] [--version] [--capability ...] [--json]

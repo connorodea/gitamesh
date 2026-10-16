@@ -3,7 +3,7 @@ import { Command } from "commander";
 import { createClient } from "../context.js";
 import type { CliDeps } from "../context.js";
 import { resolveBody } from "../body.js";
-import { CliError, printJson, printTable } from "../output.js";
+import { CliError, printJson, printTable, printWarnings } from "../output.js";
 
 const PROGRESS_PHASES = ["working", "blocked", "verifying", "ready_for_review"];
 
@@ -117,6 +117,7 @@ export function registerTaskCommands(program: Command, deps: CliDeps): void {
           ...(options.joinPolicy ? { join_policy: options.joinPolicy } : {}),
           idempotency_key: options.idempotencyKey ?? null,
         })) as { task?: TaskRecord };
+        printWarnings(deps.sink, result);
         if (options.json) {
           printJson(deps.sink, result);
         } else {

@@ -50,4 +50,26 @@ describe("gitamesh_create_task", () => {
       expect(result.error.status).toBe(400);
     }
   });
+
+  it("passes a daemon warning through, and omits warnings when there are none", async () => {
+    const warning = {
+      code: "repository-not-registered",
+      repository_id: "repo_1",
+      detail: "Stored, but no repository is registered with id repo_1.",
+    };
+    const { fetchImpl } = createFakeFetch({
+      "POST /v1/tasks": { status: 201, body: { task: fakeTask(), replayed: false, warnings: [warning] } },
+    });
+    const client = new DaemonClient({ baseUrl: "http://127.0.0.1:8787", token: null, fetchImpl });
+    const input = CreateTaskInputSchema.parse({ repositoryId: "repo_1", title: "x" });
+    const parsed = CreateTaskOutputSchema.parse(await handleCreateTask(input, client));
+    expect(parsed.ok && parsed.warnings).toEqual([warning]);
+
+    const quiet = createFakeFetch({
+      "POST /v1/tasks": { status: 201, body: { task: fakeTask(), replayed: false } },
+    });
+    const quietClient = new DaemonClient({ baseUrl: "http://127.0.0.1:8787", token: null, fetchImpl: quiet.fetchImpl });
+    const result = await handleCreateTask(input, quietClient);
+    expect(result).not.toHaveProperty("warnings");
+  });
 });

@@ -5,7 +5,8 @@ import { GitameshError, MESSAGE_BROADCAST, taskNotFound } from "@gitamesh/protoc
 import type { StorageAdapter } from "@gitamesh/core";
 import { requireScope } from "../auth.js";
 import { sendError } from "../problem.js";
-import { emitEvent, requireAgent, sendInvalidRequest } from "../collab.js";
+import { checkRepository, emitEvent, requireAgent, sendInvalidRequest, withWarnings } from "../collab.js";
+import type { UnregisteredRepositoryPolicy } from "../collab.js";
 import type { EventBroadcaster } from "../events-bus.js";
 import type { RateLimiter } from "../rate-limit.js";
 
@@ -49,6 +50,7 @@ export function registerMessageRoutes(
   storage: StorageAdapter,
   broadcaster: EventBroadcaster,
   rateLimiter: RateLimiter,
+  repositoryPolicy: UnregisteredRepositoryPolicy = "warn",
 ): void {
   app.post(
     "/v1/messages",
@@ -57,9 +59,11 @@ export function registerMessageRoutes(
       const parsed = SendMessageBody.safeParse(request.body);
       if (!parsed.success) return sendInvalidRequest(reply, parsed.error);
       try {
+        let warnings: ReturnType<typeof checkRepository> = [];
         const message = storage.transaction(() => {
           const sender = requireAgent(storage, parsed.data.from);
           if (parsed.data.to !== MESSAGE_BROADCAST) requireAgent(storage, parsed.data.to);
+          warnings = checkRepository(storage, parsed.data.repository_id, repositoryPolicy);
           if (parsed.data.task_id && !storage.getTask(parsed.data.task_id)) {
             throw taskNotFound(parsed.data.task_id);
           }
@@ -85,8 +89,9 @@ export function registerMessageRoutes(
           return created;
         });
         broadcaster.notifyNew();
+        for (const warning of warnings) request.log.warn(warning, "write names an unregistered repository");
         reply.code(201);
-        return { message };
+        return withWarnings({ message }, warnings);
       } catch (err) {
         return sendError(reply, err);
       }

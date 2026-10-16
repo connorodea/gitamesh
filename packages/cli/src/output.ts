@@ -69,3 +69,17 @@ export function printCheck(sink: OutputSink, label: string, ok: boolean, detail?
   const suffix = detail ? ` — ${detail}` : "";
   sink.log(`[${mark}] ${label}${suffix}`);
 }
+
+/**
+ * Prints any `warnings` the daemon attached to a write (for example a
+ * message tagged with an unregistered repository id) to stderr, so they
+ * reach a human without corrupting `--json` output on stdout.
+ */
+export function printWarnings(sink: OutputSink, result: unknown): void {
+  const warnings = (result as { warnings?: unknown } | null)?.warnings;
+  if (!Array.isArray(warnings)) return;
+  for (const warning of warnings) {
+    const detail = (warning as { detail?: unknown } | null)?.detail;
+    sink.error(`warning: ${typeof detail === "string" ? detail : JSON.stringify(warning)}`);
+  }
+}

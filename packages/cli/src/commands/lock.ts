@@ -2,7 +2,7 @@ import { Command } from "commander";
 
 import { createClient } from "../context.js";
 import type { CliDeps } from "../context.js";
-import { CliError, printJson, printTable } from "../output.js";
+import { CliError, printJson, printTable, printWarnings } from "../output.js";
 
 interface ClaimRecord {
   resource_claim_id: string;
@@ -73,6 +73,7 @@ export function registerLockCommands(program: Command, deps: CliDeps): void {
           task_id: options.taskId ?? null,
           ttl_seconds: options.ttl === undefined ? undefined : parseTtl(options.ttl),
         })) as { lock?: PathLockRecord };
+        printWarnings(deps.sink, result);
         if (options.json) {
           printJson(deps.sink, result);
         } else {

@@ -3,7 +3,7 @@ import { Command } from "commander";
 import { resolveBody } from "../body.js";
 import { createClient } from "../context.js";
 import type { CliDeps } from "../context.js";
-import { CliError, printJson } from "../output.js";
+import { CliError, printJson, printWarnings } from "../output.js";
 
 interface MessageRecord {
   message_id: string;
@@ -48,6 +48,7 @@ export function registerMsgCommands(program: Command, deps: CliDeps): void {
           repository_id: options.repositoryId ?? null,
           task_id: options.taskId ?? null,
         })) as { message?: MessageRecord };
+        printWarnings(deps.sink, result);
         if (options.json) {
           printJson(deps.sink, result);
         } else {

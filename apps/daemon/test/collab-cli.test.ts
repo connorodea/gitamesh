@@ -23,9 +23,28 @@ let cwd: string;
 let rawToken: string;
 let stdin: string;
 
+/**
+ * The daemon now warns on writes that name an unregistered repository, and
+ * these tests assert stderr is empty — so register the ids they use.
+ */
+function registerTestRepositories(...ids: string[]): void {
+  for (const repository_id of ids) {
+    storage.saveRepository({
+      repository_id,
+      namespace_id: "default",
+      display_name: repository_id,
+      git_common_dir: `/tmp/${repository_id}/.git`,
+      default_branch: "main",
+      created_at: storage.now(),
+      metadata: {},
+    });
+  }
+}
+
 beforeEach(async () => {
   storage = createInMemorySqliteStorage();
   built = buildServer({ storage, logger: false, rateLimitPerMinute: 10_000 });
+  registerTestRepositories("repo-1", "repo-2");
   rawToken = mintToken(storage, [...SCOPES]).rawToken;
   cwd = await fs.mkdtemp(path.join(os.tmpdir(), "gitamesh-collab-cli-"));
   stdin = "";

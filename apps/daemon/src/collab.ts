@@ -1,6 +1,6 @@
 import type { FastifyReply } from "fastify";
 import type { ZodError } from "zod";
-import type { Agent, EventEnvelope } from "@gitamesh/protocol";
+import type { Agent, EventEnvelope, Repository } from "@gitamesh/protocol";
 import { GitameshError } from "@gitamesh/protocol";
 import type { StorageAdapter } from "@gitamesh/core";
 
@@ -41,6 +41,71 @@ export function requireAgent(storage: StorageAdapter, agentId: string): Agent {
   const agent = storage.getAgent(agentId);
   if (!agent) throw agentNotFound(agentId);
   return agent;
+}
+
+export function repositoryNotRegistered(repositoryId: string): GitameshError {
+  return new GitameshError({
+    type: `${PROBLEM_BASE}/repository-not-registered`,
+    title: "Repository not registered",
+    status: 404,
+    detail:
+      `No repository is registered with id ${repositoryId}. ` +
+      "Run `gitamesh repo register` in that repository (or call gitamesh_register_repository), then retry. " +
+      "`gitamesh repo list` shows the registered ids.",
+    extensions: { repository_id: repositoryId },
+  });
+}
+
+function unregisteredRepositoryWarning(repositoryId: string): string {
+  return (
+    `Stored, but no repository is registered with id ${repositoryId}, so it will not appear in ` +
+    "`gitamesh repo list`. Run `gitamesh repo register` in that repository " +
+    "(or call gitamesh_register_repository), or check the id for a typo."
+  );
+}
+
+/**
+ * What the daemon does with a write that names a repository it has never
+ * registered. `warn` (the default) stores the write as before but returns a
+ * `warnings` entry and logs it; `refuse` answers 404 repository-not-registered.
+ * The default stays non-breaking because registration was optional until now:
+ * live agents and stored rows already use ids that were never registered.
+ */
+export type UnregisteredRepositoryPolicy = "warn" | "refuse";
+
+export function parseUnregisteredRepositoryPolicy(value: string | undefined): UnregisteredRepositoryPolicy {
+  const normalized = (value ?? "warn").trim().toLowerCase();
+  if (normalized === "warn" || normalized === "") return "warn";
+  if (normalized === "refuse") return "refuse";
+  throw new Error(`Unknown GITAMESH_UNREGISTERED_REPOSITORY "${value}". Supported: "warn" (default), "refuse".`);
+}
+
+export interface ResponseWarning {
+  code: "repository-not-registered";
+  detail: string;
+  repository_id: string;
+}
+
+/**
+ * Checks a repository id a write names. `null` means "not about any one
+ * repository" and is always accepted. A registered id returns no warnings.
+ * An unregistered id returns one warning, or throws under `refuse`.
+ */
+export function checkRepository(
+  storage: StorageAdapter,
+  repositoryId: string | null,
+  policy: UnregisteredRepositoryPolicy,
+): ResponseWarning[] {
+  if (repositoryId === null || storage.getRepository(repositoryId)) return [];
+  if (policy === "refuse") throw repositoryNotRegistered(repositoryId);
+  return [
+    { code: "repository-not-registered", detail: unregisteredRepositoryWarning(repositoryId), repository_id: repositoryId },
+  ];
+}
+
+/** Spreads `warnings` into a response body only when there is one. */
+export function withWarnings<T extends object>(body: T, warnings: ResponseWarning[]): T & { warnings?: ResponseWarning[] } {
+  return warnings.length > 0 ? { ...body, warnings } : body;
 }
 
 /** Appends an event, defaulting every correlation field the caller does not set to null. */

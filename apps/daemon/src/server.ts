@@ -13,12 +13,19 @@ import { registerEventRoutes } from "./routes/events.js";
 import { registerMessageRoutes } from "./routes/messages.js";
 import { registerLockRoutes } from "./routes/locks.js";
 import { registerRepositoryRoutes } from "./routes/repositories.js";
+import type { UnregisteredRepositoryPolicy } from "./collab.js";
 
 export interface BuildServerOptions {
   storage: StorageAdapter;
   logger?: boolean | Record<string, unknown>;
   /** Rolling-window mutating-request cap per token; default 60/min (see rate-limit.ts). */
   rateLimitPerMinute?: number;
+  /**
+   * Writes (task create, message send, lock acquire) that name an
+   * unregistered repository: `warn` (default) stores them and returns a
+   * `warnings` entry; `refuse` answers 404. See collab.ts.
+   */
+  unregisteredRepository?: UnregisteredRepositoryPolicy;
 }
 
 export interface BuiltServer {
@@ -40,6 +47,7 @@ export function buildServer(options: BuildServerOptions): BuiltServer {
   const metrics = new Metrics();
   const broadcaster = new EventBroadcaster(storage, metrics);
   const rateLimiter = new RateLimiter(options.rateLimitPerMinute ?? 60);
+  const repositoryPolicy = options.unregisteredRepository ?? "warn";
 
   const app = Fastify({
     logger: options.logger ?? {
@@ -94,11 +102,11 @@ export function buildServer(options: BuildServerOptions): BuiltServer {
   app.register(websocketPlugin).after(() => {
     registerHealthRoutes(app, storage, metrics);
     registerAgentRoutes(app, storage, broadcaster, rateLimiter);
-    registerTaskRoutes(app, storage, engine, broadcaster, metrics, rateLimiter);
+    registerTaskRoutes(app, storage, engine, broadcaster, metrics, rateLimiter, repositoryPolicy);
     registerClaimRoutes(app, storage, broadcaster, rateLimiter);
     registerEventRoutes(app, storage, broadcaster);
-    registerMessageRoutes(app, storage, broadcaster, rateLimiter);
-    registerLockRoutes(app, storage, broadcaster, rateLimiter);
+    registerMessageRoutes(app, storage, broadcaster, rateLimiter, repositoryPolicy);
+    registerLockRoutes(app, storage, broadcaster, rateLimiter, repositoryPolicy);
     registerRepositoryRoutes(app, storage, broadcaster, rateLimiter);
   });
 

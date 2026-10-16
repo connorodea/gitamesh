@@ -81,6 +81,10 @@ export class GitameshClient {
     return this.request("POST", "/v1/repositories", { body });
   }
 
+  async listRepositories(): Promise<unknown> {
+    return this.request("GET", "/v1/repositories");
+  }
+
   // --- agents --------------------------------------------------------------
 
   async registerAgent(body: {
