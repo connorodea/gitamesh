@@ -38,7 +38,7 @@ provider, not a chatbot, not a CI platform, and not an IDE.
   symlink-escape check (`resolveAndValidateResourceKey`) that
   `packages/core/src/resource-keys.ts` explicitly defers to this package.
 - **`packages/cli`** — the `gitamesh` command-line interface: `init`,
-  `doctor`, `status`, `repo register/status`, `agent
+  `doctor`, `status`, `repo register/list/status`, `agent
   register/heartbeat/list`, `task
   create/list/show/update/note/claim/heartbeat/complete/fail/cancel`
   (with `--depends-on`, owner and blocked/ready columns), `msg

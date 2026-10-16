@@ -16,7 +16,8 @@ import {
 import type { StorageAdapter } from "@gitamesh/core";
 import { requireScope } from "../auth.js";
 import { sendError } from "../problem.js";
-import { emitEvent, requireAgent, sendInvalidRequest } from "../collab.js";
+import { checkRepository, emitEvent, requireAgent, sendInvalidRequest, withWarnings } from "../collab.js";
+import type { UnregisteredRepositoryPolicy } from "../collab.js";
 import { getIdempotencyKey, withIdempotency } from "../idempotency.js";
 import type { EventBroadcaster } from "../events-bus.js";
 import type { Metrics } from "../metrics.js";
@@ -195,6 +196,7 @@ export function registerTaskRoutes(
   broadcaster: EventBroadcaster,
   metrics: Metrics,
   rateLimiter: RateLimiter,
+  repositoryPolicy: UnregisteredRepositoryPolicy = "warn",
 ): void {
   app.post(
     "/v1/tasks",
@@ -210,7 +212,9 @@ export function registerTaskRoutes(
         });
       }
       const idempotencyKey = getIdempotencyKey(request);
+      let warnings: ReturnType<typeof checkRepository>;
       try {
+        warnings = checkRepository(storage, parsed.data.repository_id, repositoryPolicy);
         assertValidDependencies(storage, {
           repositoryId: parsed.data.repository_id,
           dependencies: parsed.data.dependencies,
@@ -265,8 +269,9 @@ export function registerTaskRoutes(
         },
       );
       if (!replayed) broadcaster.notifyNew();
+      for (const warning of warnings) request.log.warn(warning, "write names an unregistered repository");
       reply.code(201);
-      return { task, replayed };
+      return withWarnings({ task, replayed }, warnings);
     },
   );
 

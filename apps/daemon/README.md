@@ -51,6 +51,7 @@ Environment variables:
 | `GITAMESH_REDIS_URL` | unset | `redis://[:password@]host:port[/db]`. Opt-in cross-process live event signaling — see "Redis cross-process signaling" below. Unset (the default) means zero behavior change and `ioredis` is never resolved. |
 | `GITAMESH_BIND_HOST` | `127.0.0.1` | Set to `0.0.0.0` to listen on all interfaces. **Secure-by-default**: loopback only unless explicitly opted into. Production TLS/remote exposure is handled by a reverse proxy (Caddy) in front of this daemon, not by the daemon itself. |
 | `GITAMESH_PORT` | `8787` | Listen port. |
+| `GITAMESH_UNREGISTERED_REPOSITORY` | `warn` | What `POST /v1/tasks`, `POST /v1/messages` (non-null `repository_id`) and `POST /v1/locks` do when they name a repository that was never registered. `warn` stores the write and adds `warnings: [{ code: "repository-not-registered", repository_id, detail }]` to the response and a warn log line; `refuse` answers `404 repository-not-registered` and stores nothing. Any other value fails startup. |
 | `LOG_LEVEL` | `info` | Pino log level. |
 
 ### Storage drivers
@@ -169,7 +170,7 @@ Problem Details](https://www.rfc-editor.org/rfc/rfc9457) with
 | `POST /v1/agents/:agentId/heartbeat` | `agent:heartbeat` | Advances agent status to `online`; naturally idempotent (repeating it just re-stamps `last_heartbeat_at`). |
 | `POST /v1/repositories` | `repository:write` | Body: `{ display_name, git_common_dir, default_branch, namespace_id?, metadata? }`. Idempotent without an Idempotency-Key: a repository already registered under `metadata.local_repository_id` (else under the same `namespace_id` + `git_common_dir`) is returned unchanged with `200` and `replayed: true`; a new one returns `201`. `repository_id` is `metadata.local_repository_id` when sent, else generated. Emits `repository.registered`. |
 | `GET /v1/repositories` | `repository:read` | Lists all repositories, oldest first. There is no update or delete route. |
-| `POST /v1/tasks` | `task:create` | Creates a task. Idempotency-Key aware. |
+| `POST /v1/tasks` | `task:create` | Creates a task. Idempotency-Key aware. Unregistered `repository_id`: as for messages. |
 | `GET /v1/tasks` | `task:read` | Optional `?repositoryId=` / `?status=` / `?agentId=` (tasks that agent holds) / `?unclaimed=true` filters. Each task carries `owner` (`{agent_id, display_name, attempt_id, heartbeat_at, expires_at}` or null), `readiness` (`ready`/`blocked`, null once not waiting) and `blocked_by`. |
 | `GET /v1/tasks/:taskId` | `task:read` | Returns `{ task, notes, revisions }`. 404 problem-details if missing. |
 | `PATCH /v1/tasks/:taskId` | `task:create` | Body (snake_case, strict): any of `title`, `description`, `priority`, `branch`, `base_sha`, `dependencies`, plus optional `updated_by` (agent id). Writes one append-only revision (`changed_by`, `changed_at`, `changes: {field: {old, new}}`) when something changed; returns `revision: null` otherwise. `dependencies` may change only while the task is pending/queued/blocked. Optional `expected_dependencies` (valid only with `dependencies`) is a compare-and-set: if it is not the task's current set (compared as a set) the edit is refused with 409 `dependencies-changed`. |
@@ -183,10 +184,10 @@ Problem Details](https://www.rfc-editor.org/rfc/rfc9457) with
 | `POST /v1/tasks/:taskId/cancel` | `task:complete` | Not an engine method — implemented directly in the daemon route (see "What's implemented directly in the daemon" below) inside a single `storage.transaction()`. Cancels the task and any of its still-active attempts/claims/leases. |
 | `GET /v1/claims` | `repository:read` | Optional `?repositoryId=` filter. Lists active (unreleased) resource claims. |
 | `POST /v1/claims/:claimId/release` | `admin` | Manual release — a governance escape hatch outside the normal complete/fail/expire lifecycle, so it's gated behind `admin` rather than a claim-specific scope (none exists). |
-| `POST /v1/messages` | `task:claim` | Body: `{ from, to, body, repository_id?, task_id? }`; `to` is an agent id or `"all"`. Append-only. |
+| `POST /v1/messages` | `task:claim` | Body: `{ from, to, body, repository_id?, task_id? }`; `to` is an agent id or `"all"`. Append-only. A non-null `repository_id` that is not registered adds `warnings` (or is refused under `GITAMESH_UNREGISTERED_REPOSITORY=refuse`). |
 | `GET /v1/messages` | `task:read` | Filters: `?to=` (also returns messages to `all`), `?from=`, `?unread=true` (needs `to`), `?since=<iso>`, `?repositoryId=`, `?taskId=`. Oldest first. |
 | `POST /v1/messages/:messageId/ack` | `task:claim` | Body: `{ agent_id }`. Adds to `acked_by`; a repeat returns `already_acked: true`. 403 if the message is addressed to another agent. |
-| `POST /v1/locks` | `task:claim` | Body: `{ agent_id, repository_id, paths[], task_id?, ttl_seconds? }` (default 900, max 86400). All-or-nothing; 409 `path-lock-conflict` names the holder. |
+| `POST /v1/locks` | `task:claim` | Body: `{ agent_id, repository_id, paths[], task_id?, ttl_seconds? }` (default 900, max 86400). All-or-nothing; 409 `path-lock-conflict` names the holder. Unregistered `repository_id`: as for messages. |
 | `GET /v1/locks` | `repository:read` | Active (unreleased, unexpired) path locks. `?repositoryId=` / `?agentId=`. |
 | `POST /v1/locks/:lockId/heartbeat` | `task:claim` | Body: `{ agent_id, ttl_seconds? }`. Holder only. 409 once expired. |
 | `POST /v1/locks/:lockId/release` | `task:claim` | Body: `{ agent_id }`. Holder only. Sets `released_at`; the record stays. |

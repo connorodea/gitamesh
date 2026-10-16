@@ -4,6 +4,7 @@ import {
   createInMemorySqliteStorage,
 } from "@gitamesh/storage-sqlite";
 import { buildServer } from "./server.js";
+import { parseUnregisteredRepositoryPolicy } from "./collab.js";
 import { mintToken, type Scope } from "./auth.js";
 import type { RedisSignal } from "./redis-signal.js";
 
@@ -92,7 +93,10 @@ async function main(): Promise<void> {
   const bindHost = process.env.GITAMESH_BIND_HOST === "0.0.0.0" ? "0.0.0.0" : "127.0.0.1";
   const port = Number(process.env.GITAMESH_PORT ?? 8787);
 
-  const { app, broadcaster, sweepExpiredLeases } = buildServer({ storage });
+  const { app, broadcaster, sweepExpiredLeases } = buildServer({
+    storage,
+    unregisteredRepository: parseUnregisteredRepositoryPolicy(process.env.GITAMESH_UNREGISTERED_REPOSITORY),
+  });
 
   const redisSignal = await createRedisSignalIfConfigured(broadcaster, app.log);
   if (redisSignal) {

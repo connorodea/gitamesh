@@ -6,7 +6,15 @@ import {
   TaskRevisionSchema,
 } from "@gitamesh/protocol";
 import type { DaemonClient } from "../internal-client.js";
-import { ToolErrorSchema, fromDaemonResult, invalidInputError, type ToolError } from "../tool-result.js";
+import {
+  ToolErrorSchema,
+  ToolWarningsSchema,
+  fromDaemonResult,
+  invalidInputError,
+  warningsOf,
+  type ToolError,
+  type ToolWarnings,
+} from "../tool-result.js";
 import { TaskViewSchema, type TaskView } from "./list-tasks.js";
 
 /**
@@ -36,12 +44,12 @@ export const SendMessageInputSchema = z.object({
   repositoryId: id.optional(),
   taskId: id.optional(),
 });
-export const SendMessageOutputSchema = output({ message: MessageSchema });
+export const SendMessageOutputSchema = output({ message: MessageSchema, warnings: ToolWarningsSchema });
 
 export async function handleSendMessage(
   input: z.infer<typeof SendMessageInputSchema>,
   client: DaemonClient,
-): Promise<{ ok: true; message: Message } | ToolError> {
+): Promise<{ ok: true; message: Message; warnings?: ToolWarnings } | ToolError> {
   const result = await client.sendMessage({
     from: input.from,
     to: input.to,
@@ -49,7 +57,11 @@ export async function handleSendMessage(
     repository_id: input.repositoryId ?? null,
     task_id: input.taskId ?? null,
   });
-  return fromDaemonResult(result, (data) => ({ ok: true as const, message: data.message as Message }));
+  return fromDaemonResult(result, (data) => ({
+    ok: true as const,
+    message: data.message as Message,
+    ...warningsOf(data),
+  }));
 }
 
 export const ListMessagesInputSchema = z.object({
@@ -215,10 +227,10 @@ export const AcquireLockInputSchema = z.object({
   taskId: id.optional(),
   ttlSeconds: ttl.optional().describe("Seconds until expiry unless heartbeated. Default 900."),
 });
-export const LockOutputSchema = output({ lock: LockViewSchema });
+export const LockOutputSchema = output({ lock: LockViewSchema, warnings: ToolWarningsSchema });
 
-function lockResult(data: { lock: unknown }): { ok: true; lock: LockView } {
-  return { ok: true as const, lock: data.lock as LockView };
+function lockResult(data: { lock: unknown }): { ok: true; lock: LockView; warnings?: ToolWarnings } {
+  return { ok: true as const, lock: data.lock as LockView, ...warningsOf(data) };
 }
 
 export async function handleAcquireLock(

@@ -162,6 +162,73 @@ describe("gitamesh repo status", () => {
   });
 });
 
+describe("gitamesh repo list", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await createTempGitRepo();
+  });
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  const repositories = [
+    {
+      repository_id: "193430c1-79c4-42aa-82ea-0332bdc911a9",
+      namespace_id: "default",
+      display_name: "juricratic (main checkout)",
+      git_common_dir: "/Users/x/juricratic/.git",
+      default_branch: "main",
+      created_at: "2026-10-16T20:18:01.994Z",
+      metadata: {},
+    },
+  ];
+
+  it("prints registered repositories as a table", async () => {
+    const sink = createFakeSink();
+    const { fetchImpl, calls } = createFakeFetch({ "GET /v1/repositories": { body: { repositories } } });
+    const code = await runCli(["node", "gitamesh", "repo", "list"], {
+      cwd: dir,
+      env: { GITAMESH_TOKEN: "gm_x" },
+      sink,
+      fetchImpl,
+    });
+    expect(code).toBe(0);
+    expect(calls[0]?.method).toBe("GET");
+    expect(sink.logs[0]).toMatch(/^repository_id\s+display_name\s+default_branch\s+created_at\s+git_common_dir/);
+    const output = sink.logs.join("\n");
+    expect(output).toContain("193430c1-79c4-42aa-82ea-0332bdc911a9");
+    expect(output).toContain("juricratic (main checkout)");
+  });
+
+  it("prints the bare array with --json, like agent list", async () => {
+    const sink = createFakeSink();
+    const { fetchImpl } = createFakeFetch({ "GET /v1/repositories": { body: { repositories } } });
+    const code = await runCli(["node", "gitamesh", "repo", "list", "--json"], {
+      cwd: dir,
+      env: { GITAMESH_TOKEN: "gm_x" },
+      sink,
+      fetchImpl,
+    });
+    expect(code).toBe(0);
+    expect(JSON.parse(sink.logs.join("\n"))).toEqual(repositories);
+  });
+
+  it("prints (none) when nothing is registered", async () => {
+    const sink = createFakeSink();
+    const { fetchImpl } = createFakeFetch({ "GET /v1/repositories": { body: { repositories: [] } } });
+    const code = await runCli(["node", "gitamesh", "repo", "list"], {
+      cwd: dir,
+      env: { GITAMESH_TOKEN: "gm_x" },
+      sink,
+      fetchImpl,
+    });
+    expect(code).toBe(0);
+    expect(sink.logs).toEqual(["(none)"]);
+  });
+});
+
 describe("gitamesh agent", () => {
   let dir: string;
 

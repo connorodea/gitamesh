@@ -22,10 +22,29 @@ let built: BuiltServer;
 let cwd: string;
 let rawToken: string;
 
+/**
+ * The daemon now warns on writes that name an unregistered repository, and
+ * these tests assert stderr is empty — so register the ids they use.
+ */
+function registerTestRepositories(...ids: string[]): void {
+  for (const repository_id of ids) {
+    storage.saveRepository({
+      repository_id,
+      namespace_id: "default",
+      display_name: repository_id,
+      git_common_dir: `/tmp/${repository_id}/.git`,
+      default_branch: "main",
+      created_at: storage.now(),
+      metadata: {},
+    });
+  }
+}
+
 beforeEach(async () => {
   storage = createInMemorySqliteStorage();
   built = buildServer({ storage, logger: false });
   rawToken = mintToken(storage, [...SCOPES]).rawToken;
+  registerTestRepositories("repo-1", "repo-2");
   cwd = await fs.mkdtemp(path.join(os.tmpdir(), "gitamesh-cli-contract-"));
 });
 
@@ -209,12 +228,42 @@ describe("gitamesh CLI <-> daemon request contract", () => {
     // `repo status` prints and `task create --repository-id` takes.
     const status = await cliJson<{ repository_id: string }>("repo", "status");
     expect(repository.repository_id).toBe(status.repository_id);
-    expect(storage.listRepositories()).toEqual([repository]);
+    // beforeEach pre-registers repo-1 and repo-2; `repo list` returns all of them.
+    const listed = await cliJson<Array<{ repository_id: string }>>("repo", "list");
+    expect(listed.map((r) => r.repository_id).sort()).toEqual(
+      ["repo-1", "repo-2", repository.repository_id].sort(),
+    );
+    expect(listed.find((r) => r.repository_id === repository.repository_id)).toEqual(repository);
 
     // Registering again is a replay, not a second repository.
     const again = await cliJson<{ replayed: boolean }>("repo", "register");
     expect(again.replayed).toBe(true);
-    expect(storage.listRepositories()).toHaveLength(1);
+    expect(storage.listRepositories()).toHaveLength(3);
+  });
+
+  it("repo list prints a table of registered repositories", async () => {
+    const result = await cli("repo", "list");
+    expect(result.code).toBe(0);
+    expect(result.errors).toEqual([]);
+    expect(result.logs[0]).toMatch(/^repository_id\s+display_name\s+default_branch\s+created_at\s+git_common_dir/);
+    expect(result.logs.join("\n")).toContain("/tmp/repo-2/.git");
+  });
+
+  it("a write naming an unregistered repository succeeds and warns on stderr", async () => {
+    const { agent } = await cliJson<{ agent: { agent_id: string } }>(
+      "agent", "register", "--display-name", "warned", "--runtime", "custom",
+    );
+    const result = await cli(
+      "msg", "send", "--from", agent.agent_id, "--to", "all", "--body", "hi",
+      "--repository-id", "repo-typo", "--json",
+    );
+    expect(result.code).toBe(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatch(/^warning: Stored, but no repository is registered with id repo-typo/);
+    expect(result.errors[0]).toContain("gitamesh repo register");
+    const body = JSON.parse(result.logs.join("\n"));
+    expect(body.message.repository_id).toBe("repo-typo");
+    expect(body.warnings[0].code).toBe("repository-not-registered");
   });
 
   it("agent heartbeat is accepted", async () => {

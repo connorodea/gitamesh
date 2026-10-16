@@ -5,6 +5,14 @@ import { createClient } from "../context.js";
 import type { CliDeps } from "../context.js";
 import { CliError, printJson, printTable } from "../output.js";
 
+interface RepositoryRecord {
+  repository_id: string;
+  display_name: string;
+  default_branch: string;
+  created_at: string;
+  git_common_dir: string;
+}
+
 export function registerRepoCommands(program: Command, deps: CliDeps): void {
   const repo = program.command("repo").description("Repository registration and status");
 
@@ -39,6 +47,25 @@ export function registerRepoCommands(program: Command, deps: CliDeps): void {
         printJson(deps.sink, result);
       } else {
         deps.sink.log(`Registered repository (local id ${repositoryId}, default branch ${identity.defaultBranch}).`);
+      }
+    });
+
+  repo
+    .command("list")
+    .description("List repositories registered with the daemon, oldest first")
+    .option("--json", "machine-readable output", false)
+    .action(async (options: { json: boolean }) => {
+      const { client } = await createClient(deps);
+      const result = (await client.listRepositories()) as { repositories?: RepositoryRecord[] };
+      const repositories = result.repositories ?? [];
+      if (options.json) {
+        printJson(deps.sink, repositories);
+      } else {
+        printTable(
+          deps.sink,
+          ["repository_id", "display_name", "default_branch", "created_at", "git_common_dir"],
+          repositories,
+        );
       }
     });
 

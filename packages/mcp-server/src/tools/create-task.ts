@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TaskSchema, JoinPolicySchema } from "@gitamesh/protocol";
 import type { DaemonClient } from "../internal-client.js";
-import { ToolErrorSchema, fromDaemonResult, type ToolError } from "../tool-result.js";
+import { ToolErrorSchema, ToolWarningsSchema, fromDaemonResult, warningsOf, type ToolError } from "../tool-result.js";
 
 export const CreateTaskInputSchema = z.object({
   repositoryId: z.string().min(1),
@@ -23,6 +23,7 @@ const CreateTaskSuccessSchema = z.object({
   ok: z.literal(true),
   task: TaskSchema,
   replayed: z.boolean(),
+  warnings: ToolWarningsSchema,
 });
 export type CreateTaskSuccess = z.infer<typeof CreateTaskSuccessSchema>;
 
@@ -49,6 +50,6 @@ export async function handleCreateTask(
   });
   return fromDaemonResult(result, (data) => {
     const { task, replayed } = data as { task: unknown; replayed: boolean };
-    return { ok: true as const, task: task as z.infer<typeof TaskSchema>, replayed };
+    return { ok: true as const, task: task as z.infer<typeof TaskSchema>, replayed, ...warningsOf(data) };
   });
 }

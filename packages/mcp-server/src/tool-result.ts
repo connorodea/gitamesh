@@ -76,3 +76,19 @@ export function fromDaemonResult<T, R>(
   }
   return daemonProblemError(result.status, result.problem);
 }
+
+/**
+ * Non-fatal notes the daemon attaches to a successful write — today only
+ * `repository-not-registered`, when a task, message or lock names a
+ * repository id nobody registered. Optional so older daemons still parse.
+ */
+export const ToolWarningsSchema = z
+  .array(z.object({ code: z.string(), detail: z.string(), repository_id: z.string().optional() }))
+  .optional();
+export type ToolWarnings = z.infer<typeof ToolWarningsSchema>;
+
+/** `{ warnings }` when the daemon sent any, otherwise `{}` — spread into a tool's success result. */
+export function warningsOf(data: unknown): { warnings?: NonNullable<ToolWarnings> } {
+  const parsed = ToolWarningsSchema.safeParse((data as { warnings?: unknown } | null)?.warnings);
+  return parsed.success && parsed.data && parsed.data.length > 0 ? { warnings: parsed.data } : {};
+}
