@@ -6,6 +6,7 @@ import type {
   Lease,
   EventEnvelope,
   Agent,
+  Device,
   Message,
   MessageAck,
   TaskRevision,
@@ -201,6 +202,34 @@ function agentFromRow(row: AgentRow): Agent {
     capabilities: JSON.parse(row.capabilities),
     status: row.status as Agent["status"],
     last_heartbeat_at: row.last_heartbeat_at,
+    metadata: JSON.parse(row.metadata),
+  };
+}
+
+type DeviceRow = {
+  device_id: string;
+  namespace_id: string;
+  hostname: string;
+  display_name: string;
+  capabilities: string;
+  status: string;
+  agent_id: string;
+  last_heartbeat_at: string | null;
+  created_at: string;
+  metadata: string;
+};
+
+function deviceFromRow(row: DeviceRow): Device {
+  return {
+    device_id: row.device_id,
+    namespace_id: row.namespace_id,
+    hostname: row.hostname,
+    display_name: row.display_name,
+    capabilities: JSON.parse(row.capabilities),
+    status: row.status as Device["status"],
+    agent_id: row.agent_id,
+    last_heartbeat_at: row.last_heartbeat_at,
+    created_at: row.created_at,
     metadata: JSON.parse(row.metadata),
   };
 }
@@ -613,6 +642,44 @@ export class SqliteStorageAdapter implements StorageAdapter {
       .prepare(`SELECT * FROM agents ORDER BY agent_id ASC`)
       .all() as AgentRow[];
     return rows.map(agentFromRow);
+  }
+
+  // --- Devices (daemon-facing) -----------------------------------------------
+  getDevice(deviceId: string): Device | undefined {
+    const row = this.db
+      .prepare(`SELECT * FROM devices WHERE device_id = ?`)
+      .get(deviceId) as DeviceRow | undefined;
+    return row ? deviceFromRow(row) : undefined;
+  }
+
+  saveDevice(device: Device): void {
+    this.db
+      .prepare(
+        `INSERT INTO devices (device_id, namespace_id, hostname, display_name, capabilities, status, agent_id, last_heartbeat_at, created_at, metadata)
+         VALUES (@device_id, @namespace_id, @hostname, @display_name, @capabilities, @status, @agent_id, @last_heartbeat_at, @created_at, @metadata)
+         ON CONFLICT(device_id) DO UPDATE SET
+           hostname=excluded.hostname, display_name=excluded.display_name,
+           capabilities=excluded.capabilities, status=excluded.status,
+           agent_id=excluded.agent_id, last_heartbeat_at=excluded.last_heartbeat_at,
+           metadata=excluded.metadata`,
+      )
+      .run({
+        ...device,
+        capabilities: JSON.stringify(device.capabilities),
+        metadata: JSON.stringify(device.metadata),
+      });
+  }
+
+  listDevices(): Device[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM devices ORDER BY device_id ASC`)
+      .all() as DeviceRow[];
+    return rows.map(deviceFromRow);
+  }
+
+  listDevicesWithCapability(capability: string): Device[] {
+    const allDevices = this.listDevices();
+    return allDevices.filter((device) => device.capabilities.includes(capability));
   }
 
   // --- Tasks: daemon-facing listing (core only needs get/save) ---------------

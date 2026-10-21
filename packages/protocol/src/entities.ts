@@ -73,6 +73,30 @@ export const AgentSchema = z.object({
 });
 export type Agent = z.infer<typeof AgentSchema>;
 
+export const DEVICE_STATES = [
+  "registered",
+  "online",
+  "offline",
+  "stale",
+  "revoked",
+] as const;
+export type DeviceState = (typeof DEVICE_STATES)[number];
+export const DeviceStateSchema = z.enum(DEVICE_STATES);
+
+export const DeviceSchema = z.object({
+  device_id: z.string(),
+  namespace_id: z.string(),
+  hostname: z.string(),
+  display_name: z.string(),
+  capabilities: z.array(z.string()),
+  status: DeviceStateSchema,
+  agent_id: z.string(),
+  last_heartbeat_at: z.string().datetime().nullable(),
+  created_at: z.string().datetime(),
+  metadata: metadataSchema,
+});
+export type Device = z.infer<typeof DeviceSchema>;
+
 export const WorkspaceSessionSchema = z.object({
   workspace_session_id: z.string(),
   repository_id: z.string(),

@@ -45,6 +45,21 @@ CREATE TABLE IF NOT EXISTS agents (
   metadata TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS devices (
+  device_id TEXT PRIMARY KEY,
+  namespace_id TEXT NOT NULL,
+  hostname TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  capabilities TEXT NOT NULL,
+  status TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  last_heartbeat_at TEXT,
+  created_at TEXT NOT NULL,
+  metadata TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_devices_namespace ON devices(namespace_id);
+CREATE INDEX IF NOT EXISTS idx_devices_agent ON devices(agent_id);
+
 CREATE TABLE IF NOT EXISTS workspace_sessions (
   workspace_session_id TEXT PRIMARY KEY,
   repository_id TEXT NOT NULL,

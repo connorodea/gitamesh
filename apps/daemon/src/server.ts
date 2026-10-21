@@ -7,6 +7,7 @@ import { EventBroadcaster } from "./events-bus.js";
 import { RateLimiter } from "./rate-limit.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerAgentRoutes } from "./routes/agents.js";
+import { registerDeviceRoutes } from "./routes/devices.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
 import { registerClaimRoutes } from "./routes/claims.js";
 import { registerEventRoutes } from "./routes/events.js";
@@ -102,6 +103,7 @@ export function buildServer(options: BuildServerOptions): BuiltServer {
   app.register(websocketPlugin).after(() => {
     registerHealthRoutes(app, storage, metrics);
     registerAgentRoutes(app, storage, broadcaster, rateLimiter);
+    registerDeviceRoutes(app, storage, broadcaster, rateLimiter);
     registerTaskRoutes(app, storage, engine, broadcaster, metrics, rateLimiter, repositoryPolicy);
     registerClaimRoutes(app, storage, broadcaster, rateLimiter);
     registerEventRoutes(app, storage, broadcaster);
