@@ -4,9 +4,11 @@ import {
   AgentSchema,
   EventEnvelopeSchema,
   ResourceClaimSchema,
+  DeviceSchema,
   TASK_STATES,
   ATTEMPT_STATES,
   AGENT_STATES,
+  DEVICE_STATES,
   INTEGRATION_STATES,
 } from "../src/entities.js";
 
@@ -125,5 +127,50 @@ describe("protocol schemas", () => {
     expect(ATTEMPT_STATES).toContain("rejected_stale");
     expect(AGENT_STATES).toContain("draining");
     expect(INTEGRATION_STATES).toContain("conflicted");
+  });
+
+  it("accepts a minimal valid Device and preserves required fields", () => {
+    const now = new Date().toISOString();
+    const device = {
+      device_id: "device_1",
+      namespace_id: "ns_1",
+      hostname: "worker-01.example.com",
+      display_name: "Worker Machine 1",
+      capabilities: ["gpu", "cuda:11.8"],
+      status: "online",
+      agent_id: "agent_1",
+      last_heartbeat_at: now,
+      created_at: now,
+      metadata: {},
+    };
+    const parsed = DeviceSchema.parse(device);
+    expect(parsed.device_id).toBe("device_1");
+    expect(parsed.status).toBe("online");
+    expect(parsed.capabilities).toContain("gpu");
+  });
+
+  it("rejects a Device with an invalid status", () => {
+    const now = new Date().toISOString();
+    expect(() =>
+      DeviceSchema.parse({
+        device_id: "device_1",
+        namespace_id: "ns_1",
+        hostname: "worker-01.example.com",
+        display_name: "Worker",
+        capabilities: [],
+        status: "not-a-status",
+        agent_id: "agent_1",
+        last_heartbeat_at: now,
+        created_at: now,
+        metadata: {},
+      }),
+    ).toThrow();
+  });
+
+  it("DEVICE_STATES includes all expected states", () => {
+    expect(DEVICE_STATES).toContain("registered");
+    expect(DEVICE_STATES).toContain("online");
+    expect(DEVICE_STATES).toContain("offline");
+    expect(DEVICE_STATES).toContain("stale");
   });
 });

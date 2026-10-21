@@ -106,6 +106,31 @@ export class GitameshClient {
     return this.request("POST", `/v1/agents/${encodeURIComponent(agentId)}/heartbeat`);
   }
 
+  // --- devices ---------------------------------------------------------------
+
+  async registerDevice(body: {
+    namespace_id?: string;
+    hostname: string;
+    display_name: string;
+    agent_id: string;
+    capabilities?: string[];
+    metadata?: Record<string, unknown>;
+  }): Promise<unknown> {
+    return this.request("POST", "/v1/devices", { body });
+  }
+
+  async listDevices(): Promise<unknown> {
+    return this.request("GET", "/v1/devices");
+  }
+
+  async getDevice(deviceId: string): Promise<unknown> {
+    return this.request("GET", `/v1/devices/${encodeURIComponent(deviceId)}`);
+  }
+
+  async heartbeatDevice(deviceId: string): Promise<unknown> {
+    return this.request("POST", `/v1/devices/${encodeURIComponent(deviceId)}/heartbeat`);
+  }
+
   // --- tasks ----------------------------------------------------------------
 
   async createTask(body: Record<string, unknown>): Promise<unknown> {
