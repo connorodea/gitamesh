@@ -257,7 +257,7 @@ export function createMcpServer(config: GitameshMcpConfig): McpServer {
       description:
         "Records a progress report on a task you hold. Needs the attemptId and fencingToken from gitamesh_claim_task; fails with 409 once your lease expired or was superseded. Does not renew the lease (use gitamesh_heartbeat).",
       inputSchema: ReportProgressInputSchema.shape,
-      outputSchema: ReportProgressOutputSchema as never,
+      outputSchema: ReportProgressOutputSchema.options[0].shape,
     },
     async (input) => toCallToolResult(await handleReportProgress(input, client)),
   );
@@ -269,7 +269,7 @@ export function createMcpServer(config: GitameshMcpConfig): McpServer {
       description:
         "Lists the progress reports recorded for a task, oldest first, with a cursor for polling.",
       inputSchema: ListTaskProgressInputSchema.shape,
-      outputSchema: ListTaskProgressOutputSchema as never,
+      outputSchema: ListTaskProgressOutputSchema.options[0].shape,
     },
     async (input) => toCallToolResult(await handleListTaskProgress(input, client)),
   );
