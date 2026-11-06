@@ -8,3 +8,4 @@ export * from "./cancellation.js";
 export * from "./path-globs.js";
 export * from "./dependencies.js";
 export * from "./progress.js";
+export * from "./orchestration.js";
