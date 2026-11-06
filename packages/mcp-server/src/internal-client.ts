@@ -171,6 +171,30 @@ export class DaemonClient {
     return this.request("GET", `/v1/tasks/${encodeURIComponent(taskId)}/progress`, { query });
   }
 
+  dispatchSubtasks(
+    taskId: string,
+    body: Record<string, unknown>,
+  ): Promise<DaemonResult<{ parent: unknown; subtasks: unknown[]; replayed: boolean }>> {
+    return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/dispatch`, { body });
+  }
+
+  getSubtaskResults(taskId: string): Promise<DaemonResult<Record<string, unknown>>> {
+    return this.request("GET", `/v1/tasks/${encodeURIComponent(taskId)}/subtasks`);
+  }
+
+  waitForSubtasks(
+    taskId: string,
+    body: Record<string, unknown>,
+  ): Promise<DaemonResult<{ woke: string; waited_ms: number; summary: Record<string, unknown> }>> {
+    return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/wait`, { body });
+  }
+
+  cancelSubtasks(
+    taskId: string,
+  ): Promise<DaemonResult<{ cancelled: unknown[]; summary: Record<string, unknown> }>> {
+    return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/cancel-subtasks`, { body: {} });
+  }
+
   updateTask(
     taskId: string,
     body: Record<string, unknown>,

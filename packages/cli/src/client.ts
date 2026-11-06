@@ -148,6 +148,22 @@ export class GitameshClient {
     return this.request("GET", `/v1/tasks/${encodeURIComponent(taskId)}/progress`, { query });
   }
 
+  async dispatchSubtasks(taskId: string, body: Record<string, unknown>): Promise<unknown> {
+    return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/dispatch`, { body });
+  }
+
+  async getSubtaskResults(taskId: string): Promise<unknown> {
+    return this.request("GET", `/v1/tasks/${encodeURIComponent(taskId)}/subtasks`);
+  }
+
+  async waitForSubtasks(taskId: string, body: Record<string, unknown>): Promise<unknown> {
+    return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/wait`, { body });
+  }
+
+  async cancelSubtasks(taskId: string): Promise<unknown> {
+    return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/cancel-subtasks`, { body: {} });
+  }
+
   async updateTask(taskId: string, body: Record<string, unknown>): Promise<unknown> {
     return this.request("PATCH", `/v1/tasks/${encodeURIComponent(taskId)}`, { body });
   }
