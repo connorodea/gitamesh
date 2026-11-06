@@ -48,6 +48,7 @@ export interface SignalPublisher {
 
 export class EventBroadcaster {
   private readonly clients = new Set<StreamClient>();
+  private readonly changeListeners = new Set<() => void>();
   private signalPublisher: SignalPublisher | undefined;
 
   constructor(
@@ -107,7 +108,26 @@ export class EventBroadcaster {
     this.pushToLocalClients();
   }
 
+  /**
+   * Registers an in-process callback run after every local or remote change
+   * notification. Long-polling routes (`POST /v1/tasks/:taskId/wait`) use it
+   * to re-check storage instead of polling. Returns an unsubscribe function.
+   */
+  onChange(listener: () => void): () => void {
+    this.changeListeners.add(listener);
+    return () => {
+      this.changeListeners.delete(listener);
+    };
+  }
+
   private pushToLocalClients(): void {
+    for (const listener of [...this.changeListeners]) {
+      try {
+        listener();
+      } catch {
+        // A listener's failure must not stop event delivery to stream clients.
+      }
+    }
     for (const client of this.clients) {
       const { events, nextCursor } = this.storage.listEventsSince(client.cursor, {
         repositoryId: client.repositoryId,
