@@ -175,6 +175,10 @@ export class MemoryStorageAdapter implements StorageAdapter {
     return [...this.events];
   }
 
+  listEventsForRepository(repositoryId: string): EventEnvelope[] {
+    return this.events.filter((e) => e.repository_id === repositoryId);
+  }
+
   lookupIdempotentResult<T>(key: string): T | undefined {
     return this.idempotencyStore.get(key) as T | undefined;
   }

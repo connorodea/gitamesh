@@ -62,6 +62,10 @@ gitamesh task update <taskId> [--title] [--description <text|@file|->] [--priori
 gitamesh task note <taskId> --agent-id --body <text|@file|-> [--json]
 gitamesh task progress <taskId> --attempt-id <id> --fencing-token <n> --summary <text|@file|-> --phase <working|blocked|verifying|ready_for_review> [--evidence <text> ...] [--idempotency-key] [--json]
 gitamesh task progress-list <taskId> [--since <cursor>] [--limit <n>] [--json]
+gitamesh task dispatch <parentTaskId> [--subtask <title> ...] [--from <@file|->] [--deadline <iso>] [--workflow-id <id>] [--json]
+gitamesh task subtasks <parentTaskId> [--json]
+gitamesh task wait <parentTaskId> [--until all|any] [--fail-fast] [--timeout <seconds, max 120>] [--cancel-remaining] [--json]
+gitamesh task cancel-subtasks <parentTaskId> [--json]
 gitamesh task claim <taskId> --agent-id --workspace-session-id [--resource <type:mode:key> ...] [--json]
 gitamesh task heartbeat <taskId> --attempt-id --fencing-token [--json]
 gitamesh task complete <taskId> --attempt-id --fencing-token [--json]
@@ -119,6 +123,7 @@ Read it with `2>&1 | head -1`, not `tail -1`.
   a call whose values match the current ones writes none. Pass
   `--agent-id` so the revision says who made the change.
 - `task progress` reports progress on a task you hold (attempt id and fencing token come from `claim`); the daemon refuses it with 409 once the lease expired or was superseded, and it never renews the lease. `task progress-list` reads the reports back. `task update --expect-depends-on` / `--expect-no-dependencies` make a dependency edit a compare-and-set: it fails with 409 if someone changed the dependencies since you read them.
+- `task dispatch` / `subtasks` / `wait` / `cancel-subtasks` are async multi-agent orchestration (see `docs/adr/0002-async-multi-agent-orchestration.md` and `examples/async-orchestration/`): fan out children under a parent task, collect each child's `result` (workers pass it with `task complete --result '<json>'`), block until they settle, and cancel stragglers. A `wait` timeout exits 0 with `woke: timeout`.
 - `task note` appends a progress note. `task show` prints notes and
   revisions, oldest first. Neither can be edited or deleted.
 

@@ -304,6 +304,114 @@ export function registerTaskCommands(program: Command, deps: CliDeps): void {
     });
 
   task
+    .command("dispatch <parentTaskId>")
+    .description("Fan out: create child tasks under a parent and return at once (async orchestration)")
+    .option("--subtask <title>", "a child task title (repeatable)", collect, [] as string[])
+    .option("--from <@file|->", "JSON array of {title, description?, priority?, required_capabilities?, branch?}")
+    .option("--deadline <iso>", "shared deadline; unsettled children past it show as overdue")
+    .option("--workflow-id <id>", "workflow for the children (default: the parent's)")
+    .option("--json", "machine-readable output", false)
+    .action(
+      async (
+        parentTaskId: string,
+        options: { subtask: string[]; from?: string; deadline?: string; workflowId?: string; json: boolean },
+      ) => {
+        const specs: unknown[] = options.subtask.map((title) => ({ title }));
+        if (options.from) {
+          const raw = await resolveBody(options.from, deps);
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(raw);
+          } catch {
+            throw new CliError("--from must contain a JSON array of subtasks");
+          }
+          if (!Array.isArray(parsed)) throw new CliError("--from must contain a JSON array of subtasks");
+          specs.push(...parsed);
+        }
+        if (specs.length === 0) throw new CliError("give at least one --subtask or --from");
+        const { client } = await createClient(deps);
+        const result = (await client.dispatchSubtasks(parentTaskId, {
+          subtasks: specs,
+          ...(options.deadline ? { deadline_at: options.deadline } : {}),
+          ...(options.workflowId ? { workflow_id: options.workflowId } : {}),
+        })) as { subtasks: Array<{ task_id: string; title: string }> };
+        if (options.json) {
+          printJson(deps.sink, result);
+          return;
+        }
+        deps.sink.log(`Dispatched ${result.subtasks.length} subtask(s) under ${parentTaskId}.`);
+        for (const child of result.subtasks) deps.sink.log(`  ${child.task_id}  ${child.title}`);
+      },
+    );
+
+  task
+    .command("subtasks <parentTaskId>")
+    .description("Fan in: each child's status and result, with counts and an outcome. Does not wait")
+    .option("--json", "machine-readable output", false)
+    .action(async (parentTaskId: string, options: { json: boolean }) => {
+      const { client } = await createClient(deps);
+      const summary = (await client.getSubtaskResults(parentTaskId)) as SubtaskSummary;
+      if (options.json) printJson(deps.sink, summary);
+      else printSubtaskSummary(deps, summary);
+    });
+
+  task
+    .command("wait <parentTaskId>")
+    .description("Block until a parent's children settle, one completes (--until any) or one fails (--fail-fast)")
+    .option("--until <all|any>", "all (default): every child settled; any: first completed child", "all")
+    .option("--fail-fast", "also wake on the first child that failed for good", false)
+    .option("--timeout <seconds>", "give up after this many seconds (max 120); not an error", "30")
+    .option("--cancel-remaining", "after waking, cancel every child that has not settled", false)
+    .option("--json", "machine-readable output", false)
+    .action(
+      async (
+        parentTaskId: string,
+        options: { until: string; failFast: boolean; timeout: string; cancelRemaining: boolean; json: boolean },
+      ) => {
+        if (options.until !== "all" && options.until !== "any") {
+          throw new CliError(`--until must be all or any, got "${options.until}"`);
+        }
+        const seconds = Number(options.timeout);
+        if (!Number.isFinite(seconds) || seconds < 0 || seconds > 120) {
+          throw new CliError(`--timeout must be between 0 and 120 seconds, got "${options.timeout}"`);
+        }
+        const { client } = await createClient(deps);
+        const result = (await client.waitForSubtasks(parentTaskId, {
+          until: options.until,
+          fail_fast: options.failFast,
+          timeout_ms: Math.round(seconds * 1000),
+        })) as { woke: string; waited_ms: number; summary: SubtaskSummary; cancelled?: unknown[] };
+        if (options.cancelRemaining && !result.summary.all_settled) {
+          const cancelled = (await client.cancelSubtasks(parentTaskId)) as { cancelled: unknown[]; summary: SubtaskSummary };
+          result.cancelled = cancelled.cancelled;
+          result.summary = cancelled.summary;
+        }
+        if (options.json) {
+          printJson(deps.sink, result);
+          return;
+        }
+        deps.sink.log(`Woke: ${result.woke} after ${result.waited_ms} ms.`);
+        if (result.cancelled) deps.sink.log(`Cancelled ${result.cancelled.length} unsettled subtask(s).`);
+        printSubtaskSummary(deps, result.summary);
+      },
+    );
+
+  task
+    .command("cancel-subtasks <parentTaskId>")
+    .description("Cancel every child of a parent that has not settled, including running ones")
+    .option("--json", "machine-readable output", false)
+    .action(async (parentTaskId: string, options: { json: boolean }) => {
+      const { client } = await createClient(deps);
+      const result = (await client.cancelSubtasks(parentTaskId)) as { cancelled: unknown[]; summary: SubtaskSummary };
+      if (options.json) {
+        printJson(deps.sink, result);
+        return;
+      }
+      deps.sink.log(`Cancelled ${result.cancelled.length} subtask(s).`);
+      printSubtaskSummary(deps, result.summary);
+    });
+
+  task
     .command("update <taskId>")
     .description("Change a task's title, description, priority, branch, base SHA or dependencies")
     .option("--title <title>", "new title")
@@ -475,14 +583,30 @@ export function registerTaskCommands(program: Command, deps: CliDeps): void {
     .description("Mark a task's active attempt complete")
     .requiredOption("--attempt-id <id>", "attempt id")
     .requiredOption("--fencing-token <n>", "fencing token returned by `task claim`")
+    .option("--result <json|@file|->", "JSON object the orchestrator collects with `task subtasks`")
     .option("--json", "machine-readable output", false)
     .action(
-      async (taskId: string, options: { attemptId: string; fencingToken: string; json: boolean }) => {
+      async (taskId: string, options: { attemptId: string; fencingToken: string; result?: string; json: boolean }) => {
         const fencingToken = parseFencingToken(options.fencingToken);
+        let resultObject: Record<string, unknown> | undefined;
+        if (options.result !== undefined) {
+          const raw = await resolveBody(options.result, deps);
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(raw);
+          } catch {
+            parsed = undefined;
+          }
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            throw new CliError("--result must be a JSON object");
+          }
+          resultObject = parsed as Record<string, unknown>;
+        }
         const { client } = await createClient(deps);
         const result = await client.completeTask(taskId, {
           attemptId: options.attemptId,
           fencingToken,
+          ...(resultObject ? { result: resultObject } : {}),
         });
         if (options.json) {
           printJson(deps.sink, result);
@@ -555,4 +679,42 @@ function parseResource(raw: string): { resourceType: string; mode: string; resou
     throw new CliError(`--resource must look like <type>:<mode>:<key>, got "${raw}"`);
   }
   return { resourceType, mode, resourceKey };
+}
+
+interface SubtaskSummary {
+  total: number;
+  settled: number;
+  succeeded: number;
+  failed: number;
+  cancelled: number;
+  overdue: number;
+  all_settled: boolean;
+  outcome: string;
+  subtasks: Array<{
+    task_id: string;
+    title: string;
+    status: string;
+    result: Record<string, unknown> | null;
+    error: string | null;
+    overdue: boolean;
+  }>;
+}
+
+function printSubtaskSummary(deps: CliDeps, summary: SubtaskSummary): void {
+  deps.sink.log(
+    `Outcome: ${summary.outcome} (${summary.settled}/${summary.total} settled: ` +
+      `${summary.succeeded} succeeded, ${summary.failed} failed, ${summary.cancelled} cancelled, ${summary.overdue} overdue)`,
+  );
+  if (summary.subtasks.length === 0) return;
+  printTable(
+    deps.sink,
+    ["task_id", "title", "status", "result", "error"],
+    summary.subtasks.map((s) => ({
+      task_id: s.task_id,
+      title: s.title,
+      status: s.overdue ? `${s.status} (overdue)` : s.status,
+      result: s.result ? JSON.stringify(s.result) : null,
+      error: s.error,
+    })),
+  );
 }

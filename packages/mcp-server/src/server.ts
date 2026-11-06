@@ -43,6 +43,12 @@ import {
   handleListTaskProgress,
 } from "./tools/progress.js";
 import {
+  DispatchSubtasksInputSchema, DispatchSubtasksOutputSchema, handleDispatchSubtasks,
+  SubtaskResultsInputSchema, SubtaskResultsOutputSchema, handleGetSubtaskResults,
+  WaitForSubtasksInputSchema, WaitForSubtasksOutputSchema, handleWaitForSubtasks,
+  CancelSubtasksInputSchema, CancelSubtasksOutputSchema, handleCancelSubtasks,
+} from "./tools/orchestration.js";
+import {
   RegisterRepositoryInputSchema, handleRegisterRepository,
   ListRepositoriesInputSchema, handleListRepositories,
 } from "./tools/repositories.js";
@@ -272,6 +278,54 @@ export function createMcpServer(config: GitameshMcpConfig): McpServer {
       outputSchema: ListTaskProgressOutputSchema as never,
     },
     async (input) => toCallToolResult(await handleListTaskProgress(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_dispatch_subtasks",
+    {
+      title: "Dispatch subtasks",
+      description:
+        "Fans out: creates N child tasks under a parent task you hold and returns at once. Workers claim and complete them in parallel; pass a `result` object to gitamesh_complete_task so the orchestrator can collect it.",
+      inputSchema: DispatchSubtasksInputSchema.shape,
+      outputSchema: DispatchSubtasksOutputSchema as never,
+    },
+    async (input) => toCallToolResult(await handleDispatchSubtasks(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_get_subtask_results",
+    {
+      title: "Get subtask results",
+      description:
+        "Fan-in: each child task's status and completion result, with counts and an outcome (running, succeeded, partial, failed, cancelled, empty). Does not wait.",
+      inputSchema: SubtaskResultsInputSchema.shape,
+      outputSchema: SubtaskResultsOutputSchema as never,
+    },
+    async (input) => toCallToolResult(await handleGetSubtaskResults(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_wait_for_subtasks",
+    {
+      title: "Wait for subtasks",
+      description:
+        "Blocks until a parent's children settle (until=all), one completes (until=any), or one fails for good (failFast), or the timeout passes. Returns woke + the fan-in summary; a timeout is a normal result. Use only when you have nothing else to do.",
+      inputSchema: WaitForSubtasksInputSchema.shape,
+      outputSchema: WaitForSubtasksOutputSchema as never,
+    },
+    async (input) => toCallToolResult(await handleWaitForSubtasks(input, client)),
+  );
+
+  server.registerTool(
+    "gitamesh_cancel_subtasks",
+    {
+      title: "Cancel subtasks",
+      description:
+        "Cancels every child of a parent task that has not settled yet, including claimed and running ones (their leases are released). Finished children are left alone.",
+      inputSchema: CancelSubtasksInputSchema.shape,
+      outputSchema: CancelSubtasksOutputSchema as never,
+    },
+    async (input) => toCallToolResult(await handleCancelSubtasks(input, client)),
   );
 
   server.registerTool(

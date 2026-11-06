@@ -85,6 +85,10 @@ CLI's default) to avoid that.
 | `gitamesh_update_task` | Changes `title`, `description`, `priority`, `branch`, `baseSha` or `dependencies` (replaces the list; `[]` clears it). Optional `expectedDependencies` (with `dependencies` only) makes it a compare-and-set: 409 `dependencies-changed` if the list is no longer the one you read. Each change writes an append-only revision; pass `agentId` so it names you. |
 | `gitamesh_report_progress` | Reports progress on a task you hold (`{ taskId, attemptId, fencingToken, summary, phase, evidence? }`). 409 once the lease expired or was superseded; never renews the lease. |
 | `gitamesh_list_task_progress` | Lists a task's progress reports (`{ taskId, since?, limit? }`) with `nextCursor`. |
+| `gitamesh_dispatch_subtasks` | Async orchestration fan-out (`{ taskId, subtasks: [{ title, description?, priority?, requiredCapabilities?, branch? }], workflowId?, deadlineAt? }`). Creates the children and returns at once. |
+| `gitamesh_get_subtask_results` | Fan-in summary for a parent (`{ taskId }`): each child's status, `result`, `error`, and an `outcome`. |
+| `gitamesh_wait_for_subtasks` | Blocks until children settle (`{ taskId, until?: "all"\|"any", failFast?, timeoutMs? ≤ 120000 }`). Returns `woke` + summary; a timeout is a normal result. |
+| `gitamesh_cancel_subtasks` | Cancels every unsettled child of a parent (`{ taskId }`), including running ones. |
 | `gitamesh_add_task_note` | Appends a progress note (`{ taskId, agentId, body }`). |
 | `gitamesh_claim_task` | Claims a task for an agent's workspace session, atomically acquiring any required resource locks. On conflict (already claimed / resource contention / not claimable / dependencies not complete) returns a **structured `ok:false` result**, never a thrown error. |
 | `gitamesh_heartbeat` | Renews an in-progress attempt's lease via its fencing token. |

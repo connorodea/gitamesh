@@ -30,6 +30,10 @@ describe("createMcpServer", () => {
         "gitamesh_release_lock",
         "gitamesh_register_repository",
         "gitamesh_list_repositories",
+        "gitamesh_dispatch_subtasks",
+        "gitamesh_get_subtask_results",
+        "gitamesh_wait_for_subtasks",
+        "gitamesh_cancel_subtasks",
       ]),
     );
   });

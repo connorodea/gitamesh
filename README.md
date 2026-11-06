@@ -37,6 +37,16 @@ provider, not a chatbot, not a CI platform, and not an IDE.
   (`assessMergeConflict`, via `git merge-tree`), and the filesystem-aware
   symlink-escape check (`resolveAndValidateResourceKey`) that
   `packages/core/src/resource-keys.ts` explicitly defers to this package.
+- **Async multi-agent orchestration** (`docs/adr/0002-async-multi-agent-orchestration.md`)
+  — the Claude cookbook orchestrator/subagent pattern on Gitamesh tasks:
+  `task dispatch` fans out N child tasks under a parent and returns at once,
+  `task subtasks` collects each child's `result` with an outcome
+  (`succeeded`/`partial`/`failed`/...), `task wait` long-polls until they
+  settle (or `--until any`, `--fail-fast`, timeout), and `task cancel-subtasks`
+  stops stragglers. Same calls as MCP tools (`gitamesh_dispatch_subtasks`,
+  `gitamesh_get_subtask_results`, `gitamesh_wait_for_subtasks`,
+  `gitamesh_cancel_subtasks`). Runnable example:
+  `apps/daemon/examples/async-orchestration.ts`.
 - **`packages/cli`** — the `gitamesh` command-line interface: `init`,
   `doctor`, `status`, `repo register/list/status`, `agent
   register/heartbeat/list`, `task
