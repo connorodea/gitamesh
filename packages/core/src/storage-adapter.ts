@@ -5,6 +5,7 @@ import type {
   Lease,
   EventEnvelope,
   Agent,
+  Device,
   Message,
   TaskRevision,
   TaskNote,
@@ -137,6 +138,13 @@ export interface StorageAdapter {
   getAgent(agentId: string): Agent | undefined;
   saveAgent(agent: Agent): void;
   listAgents(): Agent[];
+
+  // --- Devices (daemon-facing) --------------------------------------------
+  getDevice(deviceId: string): Device | undefined;
+  saveDevice(device: Device): void;
+  listDevices(): Device[];
+  /** Devices with a given capability (for task capability-based routing). */
+  listDevicesWithCapability(capability: string): Device[];
 
   // --- Tasks: daemon-facing listing (core only needs get/save) ---------------
   listTasks(filter?: { repositoryId?: string; status?: string }): Task[];
