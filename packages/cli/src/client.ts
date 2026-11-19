@@ -108,8 +108,8 @@ export class GitameshClient {
 
   // --- tasks ----------------------------------------------------------------
 
-  async createTask(body: Record<string, unknown>): Promise<unknown> {
-    return this.request("POST", "/v1/tasks", { body });
+  async createTask(body: Record<string, unknown>, idempotencyKey?: string): Promise<unknown> {
+    return this.request("POST", "/v1/tasks", { body, idempotencyKey });
   }
 
   async listTasks(query?: ListQuery): Promise<unknown> {
@@ -122,6 +122,10 @@ export class GitameshClient {
 
   async claimTask(taskId: string, body?: Record<string, unknown>): Promise<unknown> {
     return this.request("POST", `/v1/tasks/${encodeURIComponent(taskId)}/claim`, { body });
+  }
+
+  async claimNextTask(body: Record<string, unknown>, idempotencyKey?: string): Promise<unknown> {
+    return this.request("POST", "/v1/queue/claim", { body, idempotencyKey });
   }
 
   async heartbeatTask(taskId: string, body?: Record<string, unknown>): Promise<unknown> {
@@ -246,7 +250,7 @@ export class GitameshClient {
   private async request<T>(
     method: "GET" | "POST" | "PATCH",
     path: string,
-    opts: { body?: unknown; query?: ListQuery; auth?: boolean } = {},
+    opts: { body?: unknown; query?: ListQuery; auth?: boolean; idempotencyKey?: string } = {},
   ): Promise<T> {
     const { body, query, auth = true } = opts;
     const url = this.buildUrl(path, query);
@@ -257,6 +261,7 @@ export class GitameshClient {
     if (auth && this.token) {
       headers.Authorization = `Bearer ${this.token}`;
     }
+    if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;
 
     let response: Response;
     try {

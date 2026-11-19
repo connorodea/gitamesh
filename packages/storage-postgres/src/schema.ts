@@ -19,10 +19,12 @@
  * single-connection, `docker-compose`'s comment for the historical
  * context), this adapter is designed for multiple daemon processes
  * concurrently reading/writing the same database. Correctness for
- * concurrent writers relies on real Postgres transactions (`BEGIN` /
- * `COMMIT` / `ROLLBACK`) plus `SELECT ... FOR UPDATE`-free
- * `INSERT ... ON CONFLICT` upserts and atomic `UPDATE ... RETURNING`
- * counters — see adapter.ts for where each invariant is enforced.
+ * cooperating concurrent writers relies on real Postgres transactions
+ * plus a database-local advisory transaction lock acquired in worker.ts
+ * BEFORE any callback reads. This serializes the complete check-then-write
+ * operation; counter upserts and ordinary transactions alone do not prevent
+ * two processes from reading the same unclaimed task first. Direct CRUD
+ * outside transaction() does not participate in this coordination lock.
  */
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS repositories (

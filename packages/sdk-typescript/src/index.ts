@@ -14,6 +14,8 @@ export {
   type GetTaskResult,
   type ClaimTaskInput,
   type ClaimTaskResult,
+  type ClaimNextTaskInput,
+  type ClaimNextTaskResult,
   type HeartbeatTaskAttemptInput,
   type HeartbeatTaskAttemptResult,
   type CompleteTaskInput,

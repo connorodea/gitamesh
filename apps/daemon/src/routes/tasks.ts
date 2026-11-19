@@ -222,7 +222,9 @@ export function registerTaskRoutes(
       } catch (err) {
         return sendError(reply, err);
       }
-      const { result: task, replayed } = withIdempotency<Task>(
+      // A remotely retried submission must never leave a task without its
+      // event or receipt if any write fails.
+      const { result: task, replayed } = storage.transaction(() => withIdempotency<Task>(
         storage,
         "createTask",
         idempotencyKey,
@@ -267,7 +269,7 @@ export function registerTaskRoutes(
           });
           return created;
         },
-      );
+      ));
       if (!replayed) broadcaster.notifyNew();
       for (const warning of warnings) request.log.warn(warning, "write names an unregistered repository");
       reply.code(201);

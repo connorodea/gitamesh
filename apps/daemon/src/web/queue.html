@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Task queue · Gitamesh</title>
+    <link rel="stylesheet" href="/queue/queue.css">
+    <script src="/queue/queue.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to task queue</a>
+    <header class="topbar">
+      <a class="brand" href="/queue" aria-label="Gitamesh task queue">
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <path d="M16 4 27 10v12L16 28 5 22V10Z" stroke="currentColor" stroke-width="1.5"/>
+          <path d="m5 10 11 6 11-6M16 4v24M5 22l11-6 11 6" stroke="currentColor" stroke-width="1.5"/>
+          <circle cx="16" cy="16" r="3" fill="currentColor"/>
+        </svg>
+        <span>gitamesh<span class="brand-divider">/</span><span class="brand-section">tasks</span></span>
+      </a>
+      <div class="connection-state">
+        <span class="connection-dot" id="connection-dot"></span>
+        <span id="connection-status" role="status">Disconnected</span>
+        <button type="button" class="button button-quiet" id="disconnect" hidden>Disconnect</button>
+      </div>
+    </header>
+
+    <main id="main" class="workspace">
+      <section class="page-heading" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">AGENT WORKSPACE</p>
+          <h1 id="page-title">Task queue<span class="heading-dot">.</span></h1>
+          <p class="muted page-description">Send work to your agents. Follow it through completion.</p>
+        </div>
+        <button type="button" class="button button-secondary" id="refresh" disabled>
+          <span aria-hidden="true">↻</span> Refresh
+        </button>
+      </section>
+
+      <section class="connection-panel panel" id="connection-panel" aria-labelledby="connect-title">
+        <div>
+          <p class="eyebrow">CONNECT TO THIS SERVER</p>
+          <h2 id="connect-title">Open your workspace</h2>
+          <p class="muted">Use a Gitamesh token with access to read repositories and tasks, and create tasks.</p>
+        </div>
+        <form id="connect-form" autocomplete="off">
+          <label for="token">Access token</label>
+          <div class="token-row">
+            <input id="token" type="password" required autocomplete="off" spellcheck="false" placeholder="Paste your access token" aria-describedby="token-help">
+            <button class="button button-primary" id="connect-button" type="submit">Connect</button>
+          </div>
+          <p class="field-help" id="token-help">Your token stays in memory for this page session.</p>
+        </form>
+      </section>
+      <p id="connection-error" class="feedback feedback-error" role="alert" hidden></p>
+      <p id="queue-error" class="feedback feedback-error" role="alert" hidden></p>
+
+      <section class="stats" aria-label="Queue summary">
+        <div class="stat"><span class="stat-label">Ready to claim</span><strong id="count-ready">—</strong><span class="stat-note">Waiting for a worker</span></div>
+        <div class="stat"><span class="stat-label">In progress</span><strong id="count-active">—</strong><span class="stat-note">Claimed or running</span></div>
+        <div class="stat"><span class="stat-label">Blocked</span><strong id="count-blocked">—</strong><span class="stat-note">Waiting on dependencies</span></div>
+        <div class="stat"><span class="stat-label">Completed</span><strong id="count-completed">—</strong><span class="stat-note">Finished by a worker</span></div>
+      </section>
+
+      <div class="workspace-grid">
+        <section class="queue-panel panel" aria-labelledby="queue-title">
+          <div class="panel-heading">
+            <div><h2 id="queue-title">All tasks <span id="task-count" class="count-badge">0</span></h2><p class="field-help" id="last-updated">Connect to see your queue.</p></div>
+          </div>
+          <div class="queue-filters">
+            <label class="search-field" for="search"><span class="sr-only">Search tasks</span><input type="search" id="search" placeholder="Search tasks…" disabled></label>
+            <label for="status-filter"><span class="sr-only">Filter tasks by state</span><select id="status-filter" disabled><option value="all">All states</option><option value="ready">Ready to claim</option><option value="active">In progress</option><option value="blocked">Blocked</option><option value="awaiting_approval">Awaiting approval</option><option value="completed">Completed</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option></select></label>
+          </div>
+          <div id="task-list" class="task-list" aria-label="Tasks" aria-busy="false"></div>
+          <div class="empty-state" id="empty-state">
+            <span class="empty-symbol" aria-hidden="true">⌘</span>
+            <h3 id="empty-title">Your work, in one place</h3>
+            <p class="muted" id="empty-description">Connect to submit tasks and see what your agents are working on.</p>
+          </div>
+        </section>
+
+        <section class="submit-panel panel" aria-labelledby="submit-title">
+          <div class="panel-heading"><div><p class="eyebrow">NEXT UP</p><h2 id="submit-title">Submit a task</h2></div><span class="plus-mark" aria-hidden="true">+</span></div>
+          <form id="task-form">
+            <fieldset id="task-fields" disabled>
+              <label for="repository">Repository</label>
+              <select id="repository" required><option value="">Connect to choose a repository</option></select>
+              <label for="title">Task title</label>
+              <input id="title" required maxlength="500" placeholder="What needs to get done?">
+              <label for="description">Instructions <span class="optional">Optional</span></label>
+              <textarea id="description" rows="5" maxlength="60000" placeholder="Describe the outcome, relevant context, and what a successful result looks like."></textarea>
+              <label for="priority">Priority</label>
+              <select id="priority"><option value="0">Normal</option><option value="10">High</option><option value="20">Urgent</option><option value="-10">Low</option></select>
+              <details class="advanced-options">
+                <summary>Worker requirements</summary>
+                <label for="capabilities">Capabilities <span class="optional">Optional</span></label>
+                <input id="capabilities" maxlength="1000" placeholder="typescript, testing" aria-describedby="capability-help">
+                <p class="field-help" id="capability-help">Separate with commas. Only workers with all required capabilities can claim this task.</p>
+              </details>
+              <button class="button button-primary submit-button" type="submit" id="submit-button">Add to queue <span aria-hidden="true">↗</span></button>
+            </fieldset>
+            <p class="field-help submit-note" id="submit-note">Tasks wait in the queue until a compatible worker claims them.</p>
+            <div id="submit-feedback" class="feedback" role="status" hidden></div>
+          </form>
+        </section>
+      </div>
+      <footer class="workspace-footer"><span>One queue. Every agent.</span><span id="refresh-note">Updates every 5 seconds when connected</span></footer>
+    </main>
+
+    <dialog id="task-dialog" class="task-dialog" aria-labelledby="detail-title">
+      <div class="dialog-top"><p class="eyebrow">TASK DETAILS</p><button type="button" class="button button-quiet close-dialog" id="close-dialog" aria-label="Close task details">✕</button></div>
+      <h2 id="detail-title">Task details</h2>
+      <p id="detail-id" class="mono muted"></p>
+      <p id="detail-error" class="feedback feedback-error" role="alert" hidden></p>
+      <div id="detail-content" aria-busy="false"></div>
+    </dialog>
+    <noscript><p class="noscript">Enable JavaScript to connect to the task queue.</p></noscript>
+  </body>
+</html>

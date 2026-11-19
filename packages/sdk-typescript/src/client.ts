@@ -99,6 +99,25 @@ export interface ClaimTaskResult {
   replayed: boolean;
 }
 
+/** Wait for and atomically claim one eligible task from a repository's queue. */
+export interface ClaimNextTaskInput extends ClaimTaskInput {
+  repositoryId: string;
+  /** 0 checks once; at most 25,000 ms. The server wakes on task events. */
+  waitMs?: number;
+  /** Cancels this wait. A claim whose response was lost must be recovered with its idempotency key. */
+  signal?: AbortSignal;
+}
+
+export type ClaimNextTaskResult =
+  | (ClaimTaskResult & { task: Task; waitedMs: number })
+  | {
+      task: null;
+      attempt: null;
+      fencingToken: null;
+      waitedMs: number;
+      reason: "no_ready_task" | "timeout";
+    };
+
 export interface HeartbeatTaskAttemptInput {
   attemptId: string;
   fencingToken: number;
@@ -174,6 +193,7 @@ interface RequestOptions {
   query?: Record<string, QueryValue>;
   auth?: boolean;
   idempotencyKey?: string;
+  signal?: AbortSignal;
 }
 
 /**
@@ -277,6 +297,26 @@ export class GitameshClient {
         requiredResources: input.requiredResources ?? [],
       },
       idempotencyKey: input.idempotencyKey,
+    });
+  }
+
+  /**
+   * Claims the highest-priority ready task matching the registered agent's
+   * capabilities. The existing attempt, lease, and resource rules still apply.
+   * An empty queue returns task:null; it is not a transport failure. Reuse a
+   * supplied idempotency key only when retrying the same unresolved request.
+   */
+  async claimNextTask(input: ClaimNextTaskInput): Promise<ClaimNextTaskResult> {
+    return this.request("POST", "/v1/queue/claim", {
+      body: {
+        repositoryId: input.repositoryId,
+        agentId: input.agentId,
+        workspaceSessionId: input.workspaceSessionId,
+        requiredResources: input.requiredResources ?? [],
+        waitMs: input.waitMs ?? 0,
+      },
+      idempotencyKey: input.idempotencyKey,
+      signal: input.signal,
     });
   }
 
@@ -390,7 +430,7 @@ export class GitameshClient {
     path: string,
     opts: RequestOptions = {},
   ): Promise<T> {
-    const { body, query, auth = true, idempotencyKey } = opts;
+    const { body, query, auth = true, idempotencyKey, signal } = opts;
     const url = this.buildUrl(path, query);
     const headers: Record<string, string> = { Accept: "application/json" };
     if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -403,8 +443,10 @@ export class GitameshClient {
         method,
         headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
+        ...(signal ? { signal } : {}),
       });
     } catch (error) {
+      if (signal?.aborted) throw error;
       throw new GitameshNetworkError(
         `daemon unreachable at ${this.baseUrl}: ${error instanceof Error ? error.message : "unknown error"}`,
         { cause: error },

@@ -8,6 +8,22 @@ details, `Idempotency-Key`, fencing tokens, cursor-based WebSocket
 reconnect), typed and packaged for reuse by anything else that wants to
 talk to a Gitamesh daemon (an MCP server, a custom orchestrator, tests).
 
+## Remote task pickup
+
+`client.claimNextTask({ repositoryId, agentId, workspaceSessionId, waitMs,
+idempotencyKey, signal })` waits for and claims one eligible queued task.
+`waitMs` defaults to 0 and is capped at 25,000; `signal` is an optional
+`AbortSignal`. A result with `task: null` means no eligible work was found
+before the bounded wait ended. A successful result includes the task,
+attempt, fencing token, and resource claims. The existing heartbeat,
+completion, and failure methods handle the rest of the lifecycle.
+
+Reuse an idempotency key only when recovering the same unresolved claim
+request; use a fresh key when requesting the next task. The daemon selects
+work using the registered agent's capabilities, task priority, and existing
+dependency/resource rules. See [remote task queue](../../docs/remote-task-queue.md)
+for the browser interface, API contract, and runnable SDK example.
+
 ## Quickstart
 
 ```ts

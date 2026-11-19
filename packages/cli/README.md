@@ -42,6 +42,14 @@ characters.
 
 ## Commands
 
+`gitamesh task next --repository-id <id> --agent-id <id>
+--workspace-session-id <id> --wait 25 --json` waits for and atomically claims
+eligible remote work. It uses the registered agent's capabilities and the
+existing dependency/resource rules. `--wait 0` checks once; an empty result
+exits 0 with `task: null`. Use `--idempotency-key` to recover an uncertain
+claim response, and heartbeat the returned attempt during execution. See
+the [remote queue guide](../../docs/remote-task-queue.md).
+
 ```
 gitamesh init                              write .gitamesh/config.yaml (--daemon-url, --force)
 gitamesh doctor [--json]                   git repo / daemon reachability / token validity checks

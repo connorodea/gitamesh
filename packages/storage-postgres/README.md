@@ -66,17 +66,47 @@ synchronous method calls via `synckit`'s `createSyncFn`.
   happens one layer up (worker RPC) instead of inside a native binding,
   but the practical throughput characteristics for one daemon process are
   comparable.
-- **Real concurrency across daemon processes still comes from Postgres
-  itself.** Each daemon process gets its own worker and its own
-  server-side connection; Postgres's own MVCC/locking correctly
-  serializes/arbitrates between them. This is exactly what "multi-process
-  production deployment" means for this adapter — the concurrency this
-  package exists to provide is *inter*-process, not *intra*-process.
+- **Coordination transactions are serialized across daemon processes.**
+  Each process has its own connection, but every outer `transaction()`
+  acquires the same transaction-scoped advisory lock before running its
+  callback. This protects the complete read/check/write operation. Ordinary
+  `BEGIN` and a later atomic fencing-counter increment are insufficient:
+  two processes could already have read the same unclaimed task.
 
 If a future need for real intra-process concurrent Postgres access
 emerges, the fix is a connection pool *inside the worker* (still fronted
 by the same synchronous RPC surface) or, for a larger rework, making
 `StorageAdapter` itself async — not a change to make casually.
+
+### Transaction boundary and contention
+
+Real server transactions start with `BEGIN ISOLATION LEVEL READ COMMITTED`
+and then `pg_advisory_xact_lock(1195988033, 1296388936)`. The two integer
+keys encode `GITA` / `MESH` and are reserved for Gitamesh coordination in
+that database. The lock is released by commit, rollback, or connection
+termination. READ COMMITTED ensures reads after a lock wait see the previous
+holder's committed state, even if the database role defaults to another
+isolation level. See PostgreSQL's [advisory lock documentation](https://www.postgresql.org/docs/16/explicit-locking.html#ADVISORY-LOCKS).
+
+This is deliberately a coarse database-wide lock for the current synchronous
+storage contract. Task execution remains outside database transactions and
+can run in parallel; competing claim, completion, and other transactional
+state changes serialize. This does not claim independent per-repository
+transaction throughput. Keep callbacks short; never perform agent execution
+or external network calls inside them.
+
+Nested calls on the **same adapter** join the existing transaction. Do not
+nest a transaction on another adapter within a callback: that second
+connection would wait for a lock the first cannot release until it returns.
+Direct CRUD calls outside `transaction()` retain their existing autocommit
+behavior and do not acquire this lock. Therefore every operation requiring
+atomic check-then-write behavior must use `transaction()`; direct SQL writers
+are outside the guarantee. A failed begin or advisory-lock acquisition rolls
+back partial server state and resets the adapter's transaction state.
+
+The embedded PGlite test backend skips the advisory lock. Each adapter owns
+an isolated single-connection database there, so it cannot demonstrate
+coordination between real server sessions or daemon processes.
 
 ## Usage
 
@@ -115,12 +145,21 @@ coverage for transaction rollback and the daemon-facing surface
 Docker/external Postgres server required, mirroring how
 `storage-sqlite`'s tests use `:memory:`.
 
-This was additionally verified end-to-end against a **real** Postgres
-server (a local `postgres:16-alpine` container) by starting
-`apps/daemon` with `GITAMESH_STORAGE_DRIVER=postgres` +
-`GITAMESH_POSTGRES_URL` pointed at it, minting a bootstrap admin token,
-creating a task through the real HTTP API, and confirming the row via
-`psql` and `/metrics` — not just the pglite-backed test suite. Pglite is
-the default automated-test backend (fast, no external dependency); the
-real-server path is documented here rather than wired into CI in this
-milestone.
+`test/transaction-boundary.test.ts` also checks recovery after a failed begin
+and ensures nested callbacks share one transaction.
+
+Real-server tests run when `GITAMESH_TEST_POSTGRES_URL` names a throwaway
+PostgreSQL database; CI supplies PostgreSQL 16. They are explicitly skipped
+otherwise. `test/real-postgres.test.ts` covers independent connections and
+connection loss. `test/concurrent-processes.test.ts` starts two independent
+Node processes against the same database and verifies competing task claims,
+same-key idempotency receipts, and cleanup after a lock timeout. A barrier
+holds the first process after its critical read until the second either
+reaches the competing read or is observed waiting on the advisory lock. The
+test exercises the old race without relying only on scheduler timing.
+
+```bash
+pnpm --filter @gitamesh/storage-postgres... build
+GITAMESH_TEST_POSTGRES_URL=postgresql://user:pass@localhost:5432/gitamesh_test \
+  pnpm exec vitest run packages/storage-postgres/test --maxWorkers=2
+```

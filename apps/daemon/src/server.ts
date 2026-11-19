@@ -14,6 +14,8 @@ import { registerMessageRoutes } from "./routes/messages.js";
 import { registerLockRoutes } from "./routes/locks.js";
 import { registerRepositoryRoutes } from "./routes/repositories.js";
 import { registerOrchestrationRoutes } from "./routes/orchestration.js";
+import { registerQueueRoutes } from "./routes/queue.js";
+import { registerWebQueueRoutes } from "./routes/web-queue.js";
 import type { UnregisteredRepositoryPolicy } from "./collab.js";
 
 export interface BuildServerOptions {
@@ -110,6 +112,8 @@ export function buildServer(options: BuildServerOptions): BuiltServer {
     registerLockRoutes(app, storage, broadcaster, rateLimiter, repositoryPolicy);
     registerRepositoryRoutes(app, storage, broadcaster, rateLimiter);
     registerOrchestrationRoutes(app, storage, engine, broadcaster, rateLimiter);
+    registerQueueRoutes(app, storage, engine, broadcaster, metrics, rateLimiter);
+    registerWebQueueRoutes(app);
   });
 
   const sweepExpiredLeases = () => {
