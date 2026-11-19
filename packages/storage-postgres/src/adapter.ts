@@ -309,13 +309,24 @@ export class PostgresStorageAdapter implements StorageAdapter {
       return fn();
     }
     this.inTransaction = true;
-    this.client.begin();
+    let began = false;
     try {
+      // begin() includes the real-server coordination lock. It can fail
+      // before fn starts (for example on lock_timeout); the worker rolls
+      // back that partial begin and this finally still clears our state.
+      this.client.begin();
+      began = true;
       const result = fn();
       this.client.commit();
       return result;
     } catch (err) {
-      this.client.rollback();
+      if (began) {
+        try {
+          this.client.rollback();
+        } catch {
+          // Preserve the original failure if the connection was also lost.
+        }
+      }
       throw err;
     } finally {
       this.inTransaction = false;

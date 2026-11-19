@@ -62,6 +62,12 @@ const embeddedIds = new Set<number>();
 
 const RESET_EMBEDDED_SQL = "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;";
 
+// Database-local, transaction-scoped coordination mutex. The two signed-int
+// keys spell GITA / MESH. Every cooperating storage.transaction() takes this
+// before reading tasks, attempts, resource claims, or idempotency receipts.
+// Atomic counter upserts alone are too late to protect those earlier reads.
+const COORDINATION_LOCK = [0x47495441, 0x4d455348];
+
 /**
  * `pg.Client` emits `error` when the server drops an idle connection
  * (restart, `pg_terminate_backend`, network loss). With no listener Node
@@ -143,9 +149,28 @@ runAsWorker(
         const result = await connection(id).query(sql, params);
         return result.rows;
       }
-      case "begin":
-        await connection(id).query("BEGIN");
-        return "ok";
+      case "begin": {
+        const client = connection(id);
+        try {
+          // At READ COMMITTED the statements after lock acquisition see the
+          // predecessor's commit, even if this session's default is stricter.
+          // A repeatable-read snapshot taken while waiting on the lock would
+          // otherwise preserve the stale state this mutex is meant to avoid.
+          await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+          if (!embeddedIds.has(id)) {
+            await client.query("SELECT pg_advisory_xact_lock($1::int, $2::int)", COORDINATION_LOCK);
+          }
+          // Embedded PGlite adapters each own a separate, single-connection
+          // database; there are no shared server sessions to coordinate. Its
+          // tests verify transactions, not multi-process advisory locking.
+          return "ok";
+        } catch (error) {
+          // A lock timeout leaves PostgreSQL inside an aborted transaction.
+          // Clean up before reporting the failed begin to the host adapter.
+          await client.query("ROLLBACK").catch(() => undefined);
+          throw error;
+        }
+      }
       case "commit":
         await connection(id).query("COMMIT");
         return "ok";

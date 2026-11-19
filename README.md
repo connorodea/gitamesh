@@ -9,6 +9,16 @@ concurrently. It is a domain-neutral coordination, observability, and
 concurrency-control layer over Git and agent runtimes — not an LLM
 provider, not a chatbot, not a CI platform, and not an IDE.
 
+## Remote task queue
+
+Open `/queue` on your Gitamesh daemon to submit and inspect tasks from a
+browser. Applications submit through the existing authenticated
+`POST /v1/tasks` API. Workers use `gitamesh task next`, the SDK's
+`claimNextTask`, or `POST /v1/queue/claim` to wait for and atomically claim
+eligible work. Submission, ownership, leases, and progress use the existing
+task records. See [remote task queue](docs/remote-task-queue.md) for setup,
+API examples, and the distinction between queued and executed work.
+
 ## What's implemented so far (v0.1.0 — foundation milestone)
 
 - **`packages/protocol`** — versioned zod schemas + inferred TypeScript
@@ -50,7 +60,7 @@ provider, not a chatbot, not a CI platform, and not an IDE.
 - **`packages/cli`** — the `gitamesh` command-line interface: `init`,
   `doctor`, `status`, `repo register/list/status`, `agent
   register/heartbeat/list`, `task
-  create/list/show/update/note/claim/heartbeat/complete/fail/cancel`
+  create/list/show/update/note/next/claim/heartbeat/complete/fail/cancel`
   (with `--depends-on`, owner and blocked/ready columns), `msg
   send/list/ack` (append-only agent messages), `lock
   acquire/list/heartbeat/release` (path locks with a TTL). See `packages/cli/README.md` for the full command

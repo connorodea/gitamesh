@@ -156,6 +156,10 @@ multi-tenant issuance flow yet.
 
 ## Routes
 
+The [remote task queue](../../docs/remote-task-queue.md) is served at `/queue`
+with static assets at `/queue/queue.css` and `/queue/queue.js`. Only the page
+shell is public; it reads and writes through the scoped APIs below.
+
 All request/response bodies are JSON. All errors follow [RFC 9457
 Problem Details](https://www.rfc-editor.org/rfc/rfc9457) with
 `Content-Type: application/problem+json`.
@@ -172,6 +176,7 @@ Problem Details](https://www.rfc-editor.org/rfc/rfc9457) with
 | `GET /v1/repositories` | `repository:read` | Lists all repositories, oldest first. There is no update or delete route. |
 | `POST /v1/tasks` | `task:create` | Creates a task. Idempotency-Key aware. Unregistered `repository_id`: as for messages. |
 | `GET /v1/tasks` | `task:read` | Optional `?repositoryId=` / `?status=` / `?agentId=` (tasks that agent holds) / `?unclaimed=true` filters. Each task carries `owner` (`{agent_id, display_name, attempt_id, heartbeat_at, expires_at}` or null), `readiness` (`ready`/`blocked`, null once not waiting) and `blocked_by`. |
+| `POST /v1/queue/claim` | `task:read` + `task:claim` | Atomically claims the next eligible task in one repository, ordered by descending priority then creation time/task ID. Body: `{ repositoryId, agentId, workspaceSessionId, waitMs?, requiredResources? }`. Waits up to 25,000 ms on change notifications; default 0 checks once. Enforces registered capabilities, dependencies, resources, leases and fencing. Header bearer auth only. Supports successful-claim retries with `Idempotency-Key`; an empty queue returns `200` with `task: null`. See the remote queue guide for the complete contract. |
 | `GET /v1/tasks/:taskId` | `task:read` | Returns `{ task, notes, revisions }`. 404 problem-details if missing. |
 | `PATCH /v1/tasks/:taskId` | `task:create` | Body (snake_case, strict): any of `title`, `description`, `priority`, `branch`, `base_sha`, `dependencies`, plus optional `updated_by` (agent id). Writes one append-only revision (`changed_by`, `changed_at`, `changes: {field: {old, new}}`) when something changed; returns `revision: null` otherwise. `dependencies` may change only while the task is pending/queued/blocked. Optional `expected_dependencies` (valid only with `dependencies`) is a compare-and-set: if it is not the task's current set (compared as a set) the edit is refused with 409 `dependencies-changed`. |
 | `POST /v1/tasks/:taskId/notes` | `task:claim` | Body: `{ agent_id, body }`. Append-only progress note. |

@@ -115,8 +115,7 @@ export function registerTaskCommands(program: Command, deps: CliDeps): void {
           required_capabilities: options.requiredCapability,
           dependencies: options.dependsOn,
           ...(options.joinPolicy ? { join_policy: options.joinPolicy } : {}),
-          idempotency_key: options.idempotencyKey ?? null,
-        })) as { task?: TaskRecord };
+        }, options.idempotencyKey)) as { task?: TaskRecord };
         printWarnings(deps.sink, result);
         if (options.json) {
           printJson(deps.sink, result);
@@ -518,6 +517,55 @@ export function registerTaskCommands(program: Command, deps: CliDeps): void {
         printJson(deps.sink, result);
       } else {
         deps.sink.log(`Note ${result.note?.note_id ?? "unknown"} added to task ${taskId}.`);
+      }
+    });
+
+  task
+    .command("next")
+    .description("Wait for and atomically claim the next eligible task in a repository")
+    .requiredOption("--repository-id <id>", "repository to take work from")
+    .requiredOption("--agent-id <id>", "registered agent; its capabilities filter the queue")
+    .requiredOption("--workspace-session-id <id>", "workspace session id")
+    .option("--wait <seconds>", "wait for work for 0 to 25 seconds; 0 checks once", "25")
+    .option("--resource <type:mode:key>", "resource to claim with the task (repeatable)", collect, [] as string[])
+    .option("--idempotency-key <key>", "reuse this key when retrying an unresolved claim request")
+    .option("--json", "machine-readable output (task:null means no eligible work)", false)
+    .action(async (options: {
+      repositoryId: string;
+      agentId: string;
+      workspaceSessionId: string;
+      wait: string;
+      resource: string[];
+      idempotencyKey?: string;
+      json: boolean;
+    }) => {
+      const seconds = Number(options.wait);
+      if (!Number.isFinite(seconds) || seconds < 0 || seconds > 25) {
+        throw new CliError(`--wait must be between 0 and 25 seconds, got "${options.wait}"`);
+      }
+      const requiredResources = options.resource.map(parseResource);
+      const { client } = await createClient(deps);
+      const result = (await client.claimNextTask({
+        repositoryId: options.repositoryId,
+        agentId: options.agentId,
+        workspaceSessionId: options.workspaceSessionId,
+        waitMs: Math.round(seconds * 1000),
+        requiredResources,
+      }, options.idempotencyKey)) as {
+        task: { task_id: string; title: string } | null;
+        attempt: { attempt_id: string } | null;
+        fencingToken: number | null;
+        waitedMs: number;
+        reason?: string;
+      };
+      if (options.json) {
+        printJson(deps.sink, result);
+      } else if (result.task && result.attempt) {
+        deps.sink.log(
+          `Task ${result.task.task_id} claimed: ${result.task.title}. attempt_id=${result.attempt.attempt_id} fencing_token=${result.fencingToken}`,
+        );
+      } else {
+        deps.sink.log(`No eligible task (${result.reason ?? "no_ready_task"}); waited ${result.waitedMs} ms.`);
       }
     });
 

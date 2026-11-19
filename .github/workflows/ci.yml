@@ -16,8 +16,8 @@ jobs:
   build-test:
     name: Typecheck, build, test
     runs-on: ubuntu-latest
-    # A throwaway server for packages/storage-postgres/test/real-postgres.test.ts,
-    # the only test that opens a real `pg` connection.
+    # A throwaway server for real connection and independent-process
+    # coordination tests in packages/storage-postgres/test/.
     services:
       postgres:
         image: postgres:16
