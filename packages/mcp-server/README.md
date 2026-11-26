@@ -318,3 +318,40 @@ It checks two agents sharing a repository namespace, explicit replacement,
 preserved provenance, separation between repository namespaces, and complete
 paging of records that together exceed the child-output limit. The regular
 tests need no daemon, model, API key, or LoopMem installation.
+
+## Local knowledge and handoff exports
+
+Bind one local Markdown folder to its actual repository ID in the MCP process:
+
+```sh
+GITAMESH_KNOWLEDGE_ROOT=/absolute/path/to/project-notes
+GITAMESH_KNOWLEDGE_REPOSITORY_ID=repo_your_registered_id
+GITAMESH_KNOWLEDGE_WRITABLE=false
+```
+
+An Obsidian vault or an ordinary notes directory works; Obsidian is optional.
+Both root and repository ID are required together. Write access defaults to
+`false`; setting it to `true` enables only immutable export of existing LoopMem
+records, not arbitrary note editing.
+
+| Tool | Purpose |
+| --- | --- |
+| `gitamesh_knowledge_read` | Read a relative Markdown path with its SHA-256 revision. |
+| `gitamesh_knowledge_context` | Combine authored notes with optional memory, tasks, and claims; report each source's availability and truncation. |
+| `gitamesh_export_handoff` | Export an existing `memoryId`, optionally checking `{path, sha256}` pairs in `expectedSources` first. |
+
+Context defaults to 16,384 bytes and accepts 4,096–65,536. That budget covers
+compact JSON of the complete successful structured result, excluding MCP
+transport framing. Set `includeMemory` and `includeCoordination` to `false`
+for local-only context. Disabled or unavailable sources are not reported as empty.
+
+Save durable reports with existing `gitamesh_memory_remember` first, then export
+the returned ID. After export failure, retry that ID instead of saving another
+memory. Generated `Handoffs/` files are historical projections excluded from
+automatic authored-note discovery; they establish neither task completion nor
+approval. Source-hash checks are preflight checks, not distributed locks.
+
+See [Local knowledge and durable handoffs](../../docs/local-knowledge.md) for
+the pinned build, CLI/MCP budget differences, configuration, retry flow,
+acceptance criteria, and current limits. The architectural decision is recorded
+in [the November 25 ADR](../../docs/adr/2026-11-25-shared-knowledge.md).

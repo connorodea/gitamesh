@@ -102,6 +102,37 @@ Error: POST /v1/locks failed (409): Path already locked — Path "src/api/users.
 
 Read it with `2>&1 | head -1`, not `tail -1`.
 
+### Local knowledge
+
+Bind a local Markdown folder to its actual Gitamesh repository ID. The
+folder can be an Obsidian vault or an ordinary notes directory:
+
+```bash
+export GITAMESH_KNOWLEDGE_ROOT=/absolute/path/to/project-notes
+export GITAMESH_KNOWLEDGE_REPOSITORY_ID=repo_your_registered_id
+
+gitamesh knowledge read "Decisions/Database.md" --json
+gitamesh knowledge context --query "PostgreSQL" --max-notes 5 --json
+gitamesh knowledge context --path "Goals.md" --path "Constraints.md" --max-bytes 8192
+```
+
+Both environment variables are required; the folder must be absolute.
+Paths are relative to that folder. These commands read local knowledge
+without a daemon, credentials, or model calls. They do not change notes
+or create task claims. Use the existing repository ID from `gitamesh repo
+status`/registration rather than inventing a directory-based ID.
+
+`read` returns the note's path, SHA-256, byte count, and content. `context`
+returns bounded Markdown plus source hashes and truncation metadata.
+`--path` is repeatable. The default limits are 10 notes and 16,384 Markdown
+bytes; `--max-notes` accepts 1–50 and `--max-bytes` accepts 512–65,536.
+Use `--json` to inspect `truncated`, `omittedCount`, and `scannedCount`.
+The human-readable form reports truncation on stderr.
+
+Combined knowledge, memory, and coordination context, plus durable
+LoopMem handoffs, are exposed by the MCP server; see
+[`docs/local-knowledge.md`](../../docs/local-knowledge.md).
+
 ### Messages
 
 `msg` replaces the old habit of creating tasks titled `MSG a -> b`.

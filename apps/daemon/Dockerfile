@@ -45,6 +45,7 @@ COPY packages/core/package.json packages/core/package.json
 COPY packages/storage-sqlite/package.json packages/storage-sqlite/package.json
 COPY packages/storage-postgres/package.json packages/storage-postgres/package.json
 COPY packages/git-adapter/package.json packages/git-adapter/package.json
+COPY packages/knowledge/package.json packages/knowledge/package.json
 COPY packages/cli/package.json packages/cli/package.json
 COPY packages/mcp-server/package.json packages/mcp-server/package.json
 COPY packages/sdk-typescript/package.json packages/sdk-typescript/package.json

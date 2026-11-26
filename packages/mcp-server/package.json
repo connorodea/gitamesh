@@ -23,6 +23,7 @@
     "test": "vitest run --root ../.. packages/mcp-server"
   },
   "dependencies": {
+    "@gitamesh/knowledge": "workspace:*",
     "@gitamesh/protocol": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^3.24.1",
