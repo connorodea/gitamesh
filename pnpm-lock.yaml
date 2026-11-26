@@ -130,6 +130,9 @@ importers:
       '@gitamesh/git-adapter':
         specifier: workspace:*
         version: link:../git-adapter
+      '@gitamesh/knowledge':
+        specifier: workspace:*
+        version: link:../knowledge
       '@gitamesh/protocol':
         specifier: workspace:*
         version: link:../protocol
@@ -176,8 +179,20 @@ importers:
         specifier: ^3.0.5
         version: 3.2.7(@types/node@22.20.1)(jiti@1.21.7)(tsx@4.23.6)
 
+  packages/knowledge:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(jiti@1.21.7)(tsx@4.23.6)
+
   packages/mcp-server:
     dependencies:
+      '@gitamesh/knowledge':
+        specifier: workspace:*
+        version: link:../knowledge
       '@gitamesh/protocol':
         specifier: workspace:*
         version: link:../protocol

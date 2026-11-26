@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@gitamesh/git-adapter": "workspace:*",
+    "@gitamesh/knowledge": "workspace:*",
     "@gitamesh/protocol": "workspace:*",
     "commander": "^13.1.0"
   },

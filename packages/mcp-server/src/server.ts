@@ -2,6 +2,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { DaemonClient } from "./internal-client.js";
 import { LoopMemClient } from "./loopmem-client.js";
+import { createKnowledgeFetch } from "./knowledge-fetch.js";
+import {
+  KnowledgeReadInputSchema, handleKnowledgeRead,
+  KnowledgeContextInputSchema, handleKnowledgeContext,
+  ExportHandoffInputSchema, handleExportHandoff,
+} from "./tools/knowledge.js";
 import {
   MemoryInitInputSchema, handleMemoryInit,
   MemoryRememberInputSchema, handleMemoryRemember,
@@ -71,6 +77,9 @@ function toCallToolResult(payload: Record<string, unknown>): CallToolResult {
 export function createMcpServer(config: GitameshMcpConfig): McpServer {
   const client = new DaemonClient({ baseUrl: config.daemonUrl, token: config.token });
   const memoryClient = config.loopmem ? new LoopMemClient(config.loopmem) : undefined;
+  const knowledgeClient = new DaemonClient({
+    baseUrl: config.daemonUrl, token: config.token, fetchImpl: createKnowledgeFetch(),
+  });
 
   const server = new McpServer({
     name: "gitamesh-mcp-server",
@@ -452,6 +461,36 @@ export function createMcpServer(config: GitameshMcpConfig): McpServer {
       inputSchema: MemoryContextInputSchema.shape,
     },
     async (input) => toCallToolResult(await handleMemoryContext(input, memoryClient)),
+  );
+
+  server.registerTool(
+    "gitamesh_knowledge_read",
+    {
+      title: "Read project knowledge",
+      description: "Read one visible Markdown note and its SHA-256 revision from the explicitly configured local knowledge folder. Repository binding and path containment are enforced; no daemon or model call is needed.",
+      inputSchema: KnowledgeReadInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleKnowledgeRead(input, config.knowledge)),
+  );
+
+  server.registerTool(
+    "gitamesh_knowledge_context",
+    {
+      title: "Build project context",
+      description: "Build a bounded snapshot of local notes, current LoopMem context, tasks, and resource claims. Source states distinguish unavailable, disabled, omitted, and truncated from empty. maxBytes bounds compact JSON of the structured result, excluding MCP transport framing. Set includeMemory/includeCoordination false for local-only reads. This does not claim work or establish that agent assertions are true.",
+      inputSchema: KnowledgeContextInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleKnowledgeContext(input, config.knowledge, knowledgeClient, memoryClient)),
+  );
+
+  server.registerTool(
+    "gitamesh_export_handoff",
+    {
+      title: "Export an existing handoff",
+      description: "Export an existing LoopMem record as immutable, historical Markdown. Save the record with gitamesh_memory_remember first; retry this tool with the same memoryId after export failure. Requires GITAMESH_KNOWLEDGE_WRITABLE=true. Optional expectedSources are preflight SHA-256 checks, not distributed locks. Does not overwrite authored notes or complete tasks.",
+      inputSchema: ExportHandoffInputSchema.shape,
+    },
+    async (input) => toCallToolResult(await handleExportHandoff(input, config.knowledge, memoryClient)),
   );
 
   return server;

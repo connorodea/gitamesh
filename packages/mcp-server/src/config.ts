@@ -46,6 +46,8 @@ export const TOKEN_ENV_VAR = "GITAMESH_TOKEN";
 export const DEFAULT_DAEMON_URL = "http://127.0.0.1:8787";
 
 export interface GitameshMcpConfig {
+  /** Explicit local folder binding. Agent calls cannot select another root. */
+  knowledge?: { root: string; repositoryId: string; writable: boolean };
   /** Explicit shared memory configuration; absent means no memory subprocesses. */
   loopmem?: { executable: string; storeRoot: string };
   daemonUrl: string;
@@ -109,6 +111,30 @@ export async function resolveConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<GitameshMcpConfig> {
   const fileConfig = await loadConfigFile(cwd);
+  const knowledgeRoot = env.GITAMESH_KNOWLEDGE_ROOT;
+  const knowledgeRepositoryId = env.GITAMESH_KNOWLEDGE_REPOSITORY_ID;
+  const knowledgeWritable = env.GITAMESH_KNOWLEDGE_WRITABLE;
+  let knowledgeConfig: Pick<GitameshMcpConfig, "knowledge"> = {};
+  if (knowledgeRoot !== undefined || knowledgeRepositoryId !== undefined || knowledgeWritable !== undefined) {
+    if (!knowledgeRoot?.trim() || !knowledgeRepositoryId?.trim()) {
+      throw new Error("Set GITAMESH_KNOWLEDGE_ROOT and GITAMESH_KNOWLEDGE_REPOSITORY_ID together.");
+    }
+    if (!path.isAbsolute(knowledgeRoot) || knowledgeRoot.includes("\0")) {
+      throw new Error("GITAMESH_KNOWLEDGE_ROOT must be an absolute folder path.");
+    }
+    if (knowledgeRepositoryId !== knowledgeRepositoryId.trim() ||
+        Buffer.byteLength(knowledgeRepositoryId, "utf8") > 256 ||
+        /[\u0000-\u001f\u007f-\u009f]/u.test(knowledgeRepositoryId)) {
+      throw new Error("GITAMESH_KNOWLEDGE_REPOSITORY_ID must be a nonblank ID of at most 256 UTF-8 bytes, without control characters.");
+    }
+    if (knowledgeWritable !== undefined && !["true", "false"].includes(knowledgeWritable)) {
+      throw new Error("GITAMESH_KNOWLEDGE_WRITABLE must be true or false.");
+    }
+    knowledgeConfig = { knowledge: {
+      root: path.resolve(knowledgeRoot), repositoryId: knowledgeRepositoryId,
+      writable: knowledgeWritable === "true",
+    } };
+  }
   const storeRoot = env.GITAMESH_LOOPMEM_STORE;
   let memoryConfig: Pick<GitameshMcpConfig, "loopmem"> = {};
   if (storeRoot !== undefined && storeRoot !== "") {
@@ -128,10 +154,10 @@ export async function resolveConfig(
 
   const envToken = env[TOKEN_ENV_VAR];
   if (envToken && envToken.length > 0) {
-    return { daemonUrl, token: envToken, tokenSource: "env", ...memoryConfig };
+    return { daemonUrl, token: envToken, tokenSource: "env", ...memoryConfig, ...knowledgeConfig };
   }
   if (fileConfig?.token && fileConfig.token.length > 0) {
-    return { daemonUrl, token: fileConfig.token, tokenSource: "config", ...memoryConfig };
+    return { daemonUrl, token: fileConfig.token, tokenSource: "config", ...memoryConfig, ...knowledgeConfig };
   }
-  return { daemonUrl, token: null, tokenSource: "none", ...memoryConfig };
+  return { daemonUrl, token: null, tokenSource: "none", ...memoryConfig, ...knowledgeConfig };
 }

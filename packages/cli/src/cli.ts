@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { registerAgentCommands } from "./commands/agent.js";
 import { registerDoctorCommand } from "./commands/doctor.js";
 import { registerInitCommand } from "./commands/init.js";
+import { registerKnowledgeCommands } from "./commands/knowledge.js";
 import { registerLockCommands } from "./commands/lock.js";
 import { registerMsgCommands } from "./commands/msg.js";
 import { registerRepoCommands } from "./commands/repo.js";
@@ -18,7 +19,7 @@ export function buildProgram(deps: CliDeps): Command {
   const program = new Command();
   program
     .name("gitamesh")
-    .description("CLI for the Gitamesh coordination mesh: agents, tasks, messages, locks, repo status.")
+    .description("CLI for the Gitamesh coordination mesh: agents, tasks, messages, locks, repo status, knowledge.")
     .version("0.1.0");
 
   registerInitCommand(program, deps);
@@ -29,6 +30,7 @@ export function buildProgram(deps: CliDeps): Command {
   registerLockCommands(program, deps);
   registerMsgCommands(program, deps);
   registerStatusCommand(program, deps);
+  registerKnowledgeCommands(program, deps);
 
   return program;
 }

@@ -123,6 +123,18 @@ This is a foundation-layer milestone, not a production-ready system.
 
 ## Development
 
+### Shared project knowledge
+
+Gitamesh can read a user-owned Markdown folder through the CLI or MCP, assemble
+bounded context with source revisions, and export existing LoopMem records as
+immutable handoff notes. Obsidian can open the same folder. See the
+[local knowledge setup and handoff workflow](docs/local-knowledge.md) and the
+[November 25 shared-workspace architecture decision](docs/adr/2026-11-25-shared-knowledge.md).
+This local integration is explicit and opt-in; it does not synchronize vaults or
+publish changes to authored notes.
+
+### Build and test
+
 ```bash
 pnpm install
 pnpm -r build
