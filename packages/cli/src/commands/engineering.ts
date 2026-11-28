@@ -128,6 +128,6 @@ export function registerEngineeringCommands(program: Command, deps: CliDeps): vo
     if (name === "run" || name === "verify") command.option("--execute", "request live execution");
     if (name === "reconcile") command.option("--apply", "request reconciliation writes");
     if (name === "run" || name === "verify" || name === "reconcile") command.option("--dry-run", "request preview only");
-    command.action(async () => { await delegate(name, program.rawArgs.slice(4), command.opts<EngineeringOptions>(), deps); });
+    command.action(async () => { await delegate(name, program.args.slice(2), command.opts<EngineeringOptions>(), deps); });
   }
 }
