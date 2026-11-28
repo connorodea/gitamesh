@@ -2,7 +2,7 @@ import { Command } from "commander";
 
 import { registerAgentCommands } from "./commands/agent.js";
 import { registerDoctorCommand } from "./commands/doctor.js";
-import { registerEngineeringCommands } from "./commands/engineering.js";
+import { EngineeringExit, registerEngineeringCommands } from "./commands/engineering.js";
 import { registerInitCommand } from "./commands/init.js";
 import { registerLockCommands } from "./commands/lock.js";
 import { registerMsgCommands } from "./commands/msg.js";
@@ -53,6 +53,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
     await program.parseAsync(argv);
     return 0;
   } catch (error) {
+    if (error instanceof EngineeringExit) return error.exitCode;
     if (error instanceof CliError) {
       deps.sink.error(`Error: ${error.message}`);
       return error.exitCode;
