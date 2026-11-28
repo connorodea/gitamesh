@@ -87,6 +87,63 @@ gitamesh lock release <claimId> [--json]                        a resource claim
 Every command supports `--json` for machine-readable output; human
 tables/text are the default. Every command exits nonzero on failure.
 
+### Engineering
+
+`gitamesh engineering` delegates to the selected repository's
+`scripts/engineering_adapter.py`. The repository adapter owns planning,
+workflow, checks and reconciliation. Gitamesh adds no queue or workflow engine.
+
+Configure each invocation with flags or environment variables:
+
+| Flag | Environment | Required |
+| --- | --- | --- |
+| `--repo <owner/name>` | none | yes, explicit repository |
+| `--trusted-main <path>` | `GITAMESH_ENGINEERING_TRUSTED_MAIN` | yes, trusted repository checkout |
+| `--repository-id <id>` | `GITAMESH_REPOSITORY_ID` | yes, coordinator repository identity |
+| `--python <executable>` | `GITAMESH_ENGINEERING_PYTHON` | yes, Python interpreter |
+
+Flags override the corresponding environment setting. Use the repository's
+approved trusted checkout; the CLI does not install, update or qualify it.
+The adapter checks repository identity and project authority. The daemon URL
+and token use the existing CLI settings above (`GITAMESH_DAEMON_URL` and
+`GITAMESH_TOKEN`, then `.gitamesh/config.yaml`). A token goes only in the
+command child's environment, never argv or the protocol probe.
+
+Before each command the CLI invokes Python with `-I -B` and `--protocol`.
+A missing adapter/interpreter returns `ADAPTER_MISSING`; an unsuccessful or
+incompatible probe returns `ADAPTER_INCOMPATIBLE`. Both exit 2 before command
+dispatch. The required identity is `gitamesh-engineering/1`.
+
+```bash
+export GITAMESH_ENGINEERING_TRUSTED_MAIN=/path/to/approved/main
+export GITAMESH_REPOSITORY_ID=repo_juricratic
+export GITAMESH_ENGINEERING_PYTHON=python3
+
+gitamesh engineering --help
+gitamesh engineering doctor --repo connorodea/juricratic
+gitamesh engineering status --repo connorodea/juricratic --json
+gitamesh engineering plan --repo connorodea/juricratic --task-register /planning/tasks.json --harness /planning/harness.json
+gitamesh engineering next --repo connorodea/juricratic
+gitamesh engineering audit --repo connorodea/juricratic
+gitamesh engineering run --repo connorodea/juricratic --max-workers 1 --once --dry-run
+gitamesh engineering verify MVP-NEXT-02 --repo connorodea/juricratic --dry-run
+gitamesh engineering reconcile --repo connorodea/juricratic --dry-run
+```
+
+All eight commands have their own `--help`, `--json`, `--task-register` and
+`--harness` options. `run` also accepts `--max-workers`, `--once`,
+`--continuous`, `--max-ticks`, `--deadline`, `--max-duration-seconds`,
+`--execute` and `--dry-run`. `verify <task>` accepts `--execute` and
+`--dry-run`; `reconcile` accepts `--apply` and `--dry-run`.
+These flags pass through to the adapter without workflow decisions in the CLI.
+Only use live flags under existing repository authority. The current
+Juricratic adapter refuses live execution or writes until qualified.
+
+`--json` preserves the adapter's JSON envelope; human output shows `ok`,
+blockers, any typed error and the first six result lines. Adapter exit codes
+are preserved: 0 ok, 1 blocked, 2 usage/typed error, 3 live mode not qualified.
+Command output is not an independent acceptance receipt or a deployment claim.
+
 ### Errors
 
 The **first line** on stderr is the whole failure in one sentence: method,
