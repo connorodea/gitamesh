@@ -2,6 +2,7 @@ import { Command } from "commander";
 
 import { registerAgentCommands } from "./commands/agent.js";
 import { registerDoctorCommand } from "./commands/doctor.js";
+import { registerEngineeringCommands } from "./commands/engineering.js";
 import { registerInitCommand } from "./commands/init.js";
 import { registerLockCommands } from "./commands/lock.js";
 import { registerMsgCommands } from "./commands/msg.js";
@@ -23,6 +24,7 @@ export function buildProgram(deps: CliDeps): Command {
 
   registerInitCommand(program, deps);
   registerDoctorCommand(program, deps);
+  registerEngineeringCommands(program, deps);
   registerRepoCommands(program, deps);
   registerAgentCommands(program, deps);
   registerTaskCommands(program, deps);
